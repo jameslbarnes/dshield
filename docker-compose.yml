@@ -5,9 +5,7 @@ version: "3.8"
 
 services:
   dshield:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/jameslbarnes/dshield:latest
     ports:
       - "3000:3000"
     environment:
@@ -25,26 +23,10 @@ services:
       # API keys for functions (encrypted by d-stack)
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
-    volumes:
-      # Mount user functions
-      - ./functions:/app/functions:ro
-
-      # Mount credentials (for Firestore)
-      # - ./credentials.json:/app/credentials.json:ro
-
+    # Healthcheck using wget (curl may not be installed)
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 256M
+      start_period: 30s

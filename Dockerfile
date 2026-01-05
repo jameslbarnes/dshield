@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     iptables \
     iproute2 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy built files and dependencies
@@ -55,7 +56,7 @@ COPY --from=builder /app/build/isolation ./build/isolation
 COPY --from=builder /app/scripts ./scripts
 
 # Copy wrapper scripts
-COPY src/runtime/wrappers ./dist/runtime/wrappers
+COPY src/runtime/wrappers ./dist/src/runtime/wrappers
 
 # Make scripts executable
 RUN chmod +x scripts/*.sh
@@ -75,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
 
 # Default command
-CMD ["node", "dist/runtime/cli.js"]
+CMD ["node", "dist/src/runtime/cli.js"]
