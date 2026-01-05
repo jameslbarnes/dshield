@@ -20,6 +20,7 @@ import { TEESigner } from '../proxy/signer.js';
 import { InMemoryLogStore } from '../proxy/log-store.js';
 import { FunctionSandbox, createSandbox } from './function-sandbox.js';
 import { managementApi, managementStore } from '../management/index.js';
+import { clientTransparencyApi } from '../client-transparency/index.js';
 import type { StoredFunction } from '../management/types.js';
 import type {
   RuntimeConfig,
@@ -195,6 +196,12 @@ export class DShieldRuntime {
       // Check for management API routes first
       const handled = await managementApi.handle(req, res);
       if (handled) {
+        return;
+      }
+
+      // Check for client transparency API routes
+      const transparencyHandled = await clientTransparencyApi.handle(req, res);
+      if (transparencyHandled) {
         return;
       }
 

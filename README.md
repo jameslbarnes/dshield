@@ -40,6 +40,7 @@ If we can attest that a function only talks to `api.anthropic.com`, that's equiv
 - **TEE Attestation**: Proves the D-Shield runtime is running unmodified
 - **Multi-Runtime**: Supports Node.js and Python functions
 - **4-Layer Isolation**: Stdlib shims, LD_PRELOAD, network namespace, seccomp
+- **Client Code Transparency**: Sign and publish client builds for end-to-end verification
 
 ## Quick Start
 
@@ -142,6 +143,34 @@ const logs = await fetch('/logs/dshield-runtime').then(r => r.json());
 const result = await verifyLogIntegrity(logs.entries, publicKey, verifySignature);
 console.log('Logs valid:', result.valid);
 ```
+
+## Client Code Transparency
+
+D-Shield also supports client-side code transparency, allowing developers to cryptographically prove what code is running on client devices.
+
+```bash
+# Generate signing keys
+npx dshield-sign keygen --output ./keys
+
+# Generate manifest from build output
+npx dshield-sign generate \
+  --dir ./dist \
+  --name "My App v1.0.0" \
+  --type web \
+  --egress api.myapp.com
+
+# Sign the manifest
+npx dshield-sign sign \
+  --manifest manifest.json \
+  --key keys/dshield-private.pem
+
+# Publish to D-Shield server
+npx dshield-sign publish \
+  --manifest signed-manifest.json \
+  --server https://your-dshield-server.com
+```
+
+See [docs/CLIENT-TRANSPARENCY.md](docs/CLIENT-TRANSPARENCY.md) for full documentation.
 
 ## License
 
