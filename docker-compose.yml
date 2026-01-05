@@ -1,0 +1,50 @@
+# D-Shield Docker Compose for Phala d-stack deployment
+# This file is used by Phala Cloud to deploy the D-Shield runtime
+
+version: "3.8"
+
+services:
+  dshield:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Runtime configuration
+      - DSHIELD_PORT=3000
+      - NODE_ENV=production
+
+      # Function configuration (can be overridden)
+      - DSHIELD_FUNCTIONS_PATH=/app/functions
+
+      # Firestore configuration (for production log storage)
+      # - FIRESTORE_PROJECT_ID=your-project-id
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
+
+      # API keys for functions (encrypted by d-stack)
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+
+    volumes:
+      # Mount user functions
+      - ./functions:/app/functions:ro
+
+      # Mount credentials (for Firestore)
+      # - ./credentials.json:/app/credentials.json:ro
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 256M

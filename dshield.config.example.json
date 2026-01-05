@@ -1,0 +1,33 @@
+{
+  "port": 3000,
+  "functions": [
+    {
+      "id": "hello",
+      "name": "Hello World",
+      "entryPoint": "./functions/hello.mjs",
+      "runtime": "node",
+      "handler": "handler",
+      "timeout": 30000,
+      "env": {}
+    },
+    {
+      "id": "anthropic-proxy",
+      "name": "Anthropic API Proxy",
+      "entryPoint": "./functions/anthropic-proxy.mjs",
+      "runtime": "node",
+      "handler": "handler",
+      "timeout": 60000,
+      "env": {
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  ],
+  "logStorage": {
+    "type": "firestore",
+    "projectId": "your-gcp-project-id",
+    "collection": "dshield-logs"
+  },
+  "signer": {
+    "type": "ephemeral"
+  }
+}
