@@ -12,10 +12,15 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { LoggingProxyServer } from '../proxy/proxy-server.js';
 import { TEESigner } from '../proxy/signer.js';
 import { InMemoryLogStore } from '../proxy/log-store.js';
 import { FunctionSandbox, createSandbox } from './function-sandbox.js';
+import { managementApi, managementStore } from '../management/index.js';
+import type { StoredFunction } from '../management/types.js';
 import type {
   RuntimeConfig,
   FunctionConfig,
@@ -33,9 +38,15 @@ export class DShieldRuntime {
   private logStore: LogStore;
   private signer: Signer;
   private started = false;
+  private proxyUrl = '';
+  private tempDir: string;
 
   constructor(config: RuntimeConfig) {
     this.config = config;
+
+    // Set up temp directory for dynamic functions
+    this.tempDir = path.join(process.cwd(), '.dshield-functions');
+    mkdirSync(this.tempDir, { recursive: true });
 
     // Initialize log store
     this.logStore = this.createLogStore(config.logStorage);
@@ -107,15 +118,18 @@ export class DShieldRuntime {
       throw new Error('Runtime already started');
     }
 
+    // Initialize management store with root API key from env or generate new one
+    const rootKey = managementStore.initialize(process.env.DSHIELD_ROOT_KEY);
+
     // Start proxy server
     await this.proxyServer.start();
-    const proxyUrl = this.proxyServer.getProxyUrl();
+    this.proxyUrl = this.proxyServer.getProxyUrl();
 
     // Update sandbox configs with proxy URL
     for (const fn of this.config.functions) {
       const sandbox = createSandbox(fn, {
-        httpProxy: proxyUrl,
-        httpsProxy: proxyUrl,
+        httpProxy: this.proxyUrl,
+        httpsProxy: this.proxyUrl,
         workDir: process.cwd(),
       });
       this.sandboxes.set(fn.id, sandbox);
@@ -125,8 +139,14 @@ export class DShieldRuntime {
     await new Promise<void>((resolve) => {
       this.httpServer.listen(this.config.port, () => {
         console.log(`D-Shield runtime listening on port ${this.config.port}`);
-        console.log(`Logging proxy on ${proxyUrl}`);
-        console.log(`Registered functions: ${this.config.functions.map((f) => f.id).join(', ')}`);
+        console.log(`Logging proxy on ${this.proxyUrl}`);
+        console.log(`Registered functions: ${this.config.functions.map((f) => f.id).join(', ') || '(none)'}`);
+        console.log('');
+        console.log('========================================');
+        console.log('ROOT API KEY (save this, shown only once):');
+        console.log(rootKey);
+        console.log('========================================');
+        console.log('');
         resolve();
       });
     });
@@ -172,6 +192,12 @@ export class DShieldRuntime {
     const startTime = Date.now();
 
     try {
+      // Check for management API routes first
+      const handled = await managementApi.handle(req, res);
+      if (handled) {
+        return;
+      }
+
       // Parse URL
       const url = new URL(req.url || '/', `http://localhost:${this.config.port}`);
       const pathParts = url.pathname.split('/').filter(Boolean);
@@ -196,18 +222,20 @@ export class DShieldRuntime {
         return;
       }
 
-      // Route: /functions
+      // Route: /functions (list both static and dynamic functions)
       if (pathParts[0] === 'functions') {
+        const staticFns = this.config.functions.map((f) => ({
+          id: f.id,
+          name: f.name,
+          runtime: f.runtime,
+        }));
+        const dynamicFns = managementStore.listFunctions().map((f) => ({
+          id: f.id,
+          name: f.name,
+          runtime: f.runtime,
+        }));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            functions: this.config.functions.map((f) => ({
-              id: f.id,
-              name: f.name,
-              runtime: f.runtime,
-            })),
-          })
-        );
+        res.end(JSON.stringify({ functions: [...staticFns, ...dynamicFns] }));
         return;
       }
 
@@ -241,7 +269,16 @@ export class DShieldRuntime {
     res: http.ServerResponse,
     url: URL
   ): Promise<void> {
-    const sandbox = this.sandboxes.get(functionId);
+    // Try static sandbox first
+    let sandbox: FunctionSandbox | undefined = this.sandboxes.get(functionId);
+
+    // If not found, try to load from dynamic function store
+    if (!sandbox) {
+      const dynamicSandbox = await this.loadDynamicFunction(functionId);
+      if (dynamicSandbox) {
+        sandbox = dynamicSandbox;
+      }
+    }
 
     if (!sandbox) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -358,6 +395,48 @@ export class DShieldRuntime {
    */
   async getLogs(functionId: string) {
     return this.logStore.getAll(functionId);
+  }
+
+  /**
+   * Load a dynamic function from the management store.
+   */
+  private async loadDynamicFunction(functionId: string): Promise<FunctionSandbox | null> {
+    const storedFn = managementStore.getFunction(functionId);
+    if (!storedFn) {
+      return null;
+    }
+
+    // Decode and write function code to temp file
+    const code = Buffer.from(storedFn.code, 'base64').toString('utf-8');
+    const ext = storedFn.runtime === 'node' ? '.mjs' : '.py';
+    const fnPath = path.join(this.tempDir, `${functionId}${ext}`);
+    writeFileSync(fnPath, code);
+
+    // Get secrets to inject as env vars
+    const secretEnv = storedFn.envVars
+      ? managementStore.getSecretsAsEnv(storedFn.envVars)
+      : {};
+
+    // Create function config
+    const fnConfig: FunctionConfig = {
+      id: storedFn.id,
+      name: storedFn.name,
+      entryPoint: fnPath,
+      runtime: storedFn.runtime,
+      handler: storedFn.handler,
+      timeout: storedFn.timeout,
+      env: secretEnv,
+    };
+
+    // Create and cache sandbox
+    const sandbox = createSandbox(fnConfig, {
+      httpProxy: this.proxyUrl,
+      httpsProxy: this.proxyUrl,
+      workDir: this.tempDir,
+    });
+
+    this.sandboxes.set(functionId, sandbox);
+    return sandbox;
   }
 }
 

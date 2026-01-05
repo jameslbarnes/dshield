@@ -13,6 +13,9 @@ services:
       - DSHIELD_PORT=3000
       - NODE_ENV=production
 
+      # Root API key for management API (set via .env file)
+      - DSHIELD_ROOT_KEY=${DSHIELD_ROOT_KEY}
+
       # Function configuration (can be overridden)
       - DSHIELD_FUNCTIONS_PATH=/app/functions
 
