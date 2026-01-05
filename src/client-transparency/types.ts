@@ -63,6 +63,161 @@ export interface SourceReference {
 }
 
 /**
+ * HTTP method types for API endpoints.
+ */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
+
+/**
+ * Detailed API endpoint declaration.
+ * Documents a specific API the client communicates with.
+ */
+export interface ApiEndpoint {
+  /** Unique identifier for this endpoint */
+  id: string;
+  /** Human-readable name (e.g., "User Authentication") */
+  name: string;
+  /** Base URL or pattern (e.g., "https://api.example.com/v1") */
+  baseUrl: string;
+  /** Specific path pattern (e.g., "/users/:id" or "/auth/login") */
+  path?: string;
+  /** HTTP methods used */
+  methods: HttpMethod[];
+  /** Purpose/description of this endpoint */
+  purpose: string;
+  /** What data is sent TO this endpoint */
+  dataSent?: DataFlowDescription;
+  /** What data is received FROM this endpoint */
+  dataReceived?: DataFlowDescription;
+  /** Whether this endpoint is required for core functionality */
+  required: boolean;
+  /** Authentication method used (e.g., "bearer", "api-key", "cookie") */
+  authentication?: string;
+  /** Associated D-Shield function ID if this goes through D-Shield */
+  dshieldFunctionId?: string;
+  /** File(s) where this API call originates */
+  sourceLocations?: string[];
+}
+
+/**
+ * Describes data flowing to/from an API.
+ */
+export interface DataFlowDescription {
+  /** High-level description */
+  description: string;
+  /** Data categories (e.g., "user-input", "analytics", "credentials") */
+  categories: DataCategory[];
+  /** Whether data includes PII */
+  containsPii?: boolean;
+  /** Example of data structure (sanitized) */
+  exampleSchema?: Record<string, unknown>;
+}
+
+/**
+ * Categories of data that may be transmitted.
+ */
+export type DataCategory =
+  | 'user-input'        // Direct user input (messages, forms)
+  | 'credentials'       // Auth tokens, passwords, API keys
+  | 'analytics'         // Usage metrics, telemetry
+  | 'device-info'       // Device/browser metadata
+  | 'location'          // Geographic data
+  | 'media'             // Images, audio, video
+  | 'files'             // User files/documents
+  | 'preferences'       // User settings
+  | 'identifiers'       // User IDs, session IDs
+  | 'financial'         // Payment info
+  | 'health'            // Health/medical data
+  | 'communications'    // Messages, emails
+  | 'behavioral'        // Click patterns, interactions
+  | 'third-party'       // Data from other services
+  | 'system'            // App state, errors, logs
+  | 'other';
+
+/**
+ * Third-party service integration declaration.
+ */
+export interface ThirdPartyIntegration {
+  /** Service name (e.g., "Google Analytics", "Stripe") */
+  name: string;
+  /** Service category */
+  category: 'analytics' | 'payment' | 'auth' | 'cdn' | 'monitoring' | 'advertising' | 'social' | 'other';
+  /** Domains used by this service */
+  domains: string[];
+  /** Purpose of integration */
+  purpose: string;
+  /** Link to service's privacy policy */
+  privacyPolicyUrl?: string;
+  /** Whether this is optional/can be disabled */
+  optional: boolean;
+}
+
+/**
+ * Complete API surface declaration for a client.
+ */
+export interface ApiSurface {
+  /** Version of the API surface schema */
+  version: '1.0';
+  /** Timestamp when this was generated */
+  generatedAt: string;
+  /** All API endpoints the client communicates with */
+  endpoints: ApiEndpoint[];
+  /** Third-party service integrations */
+  thirdPartyServices?: ThirdPartyIntegration[];
+  /** WebSocket connections */
+  websockets?: WebSocketEndpoint[];
+  /** Local storage usage */
+  localStorage?: LocalStorageUsage[];
+  /** Cookies used */
+  cookies?: CookieUsage[];
+}
+
+/**
+ * WebSocket endpoint declaration.
+ */
+export interface WebSocketEndpoint {
+  /** Endpoint identifier */
+  id: string;
+  /** WebSocket URL */
+  url: string;
+  /** Purpose */
+  purpose: string;
+  /** Message types sent */
+  messageTypesSent?: string[];
+  /** Message types received */
+  messageTypesReceived?: string[];
+}
+
+/**
+ * Local storage usage declaration.
+ */
+export interface LocalStorageUsage {
+  /** Storage key pattern */
+  key: string;
+  /** What is stored */
+  purpose: string;
+  /** Data categories stored */
+  categories: DataCategory[];
+  /** Storage type */
+  storageType: 'localStorage' | 'sessionStorage' | 'indexedDB';
+}
+
+/**
+ * Cookie usage declaration.
+ */
+export interface CookieUsage {
+  /** Cookie name pattern */
+  name: string;
+  /** Purpose of this cookie */
+  purpose: string;
+  /** Cookie type */
+  type: 'essential' | 'functional' | 'analytics' | 'advertising';
+  /** Whether it's first-party or third-party */
+  party: 'first' | 'third';
+  /** Expiration (e.g., "session", "30 days") */
+  expiration?: string;
+}
+
+/**
  * Client manifest containing all information needed to verify a client build.
  * This is the primary artifact that gets signed and published.
  */
@@ -85,6 +240,8 @@ export interface ClientManifest {
   source?: SourceReference;
   /** Egress domains this client is allowed to contact */
   allowedEgress: string[];
+  /** Complete API surface documentation - all APIs the client talks to */
+  apiSurface?: ApiSurface;
   /** Associated D-Shield function IDs this client interacts with */
   dshieldFunctions?: string[];
   /** Custom metadata from developer */
@@ -177,6 +334,10 @@ export interface ManifestGeneratorConfig {
   exclude?: string[];
   /** Allowed egress domains */
   allowedEgress: string[];
+  /** Complete API surface definition */
+  apiSurface?: ApiSurface;
+  /** Path to API surface JSON file (alternative to inline apiSurface) */
+  apiSurfaceFile?: string;
   /** D-Shield function IDs this client uses */
   dshieldFunctions?: string[];
   /** Source reference configuration */

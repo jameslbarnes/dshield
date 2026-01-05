@@ -13,9 +13,10 @@ Even with server-side attestation, users can't verify:
 
 Client transparency provides:
 1. **Reproducible Build Manifests** - Hash every file in your build output
-2. **Cryptographic Signing** - Sign manifests with RSA keys
-3. **Published Registry** - Users can discover and verify manifests
-4. **Self-Verification SDK** - Clients can verify their own integrity
+2. **API Surface Documentation** - Document every API endpoint your client communicates with
+3. **Cryptographic Signing** - Sign manifests with RSA keys
+4. **Published Registry** - Users can discover and verify manifests
+5. **Self-Verification SDK** - Clients can verify their own integrity
 
 ## Quick Start
 
@@ -67,6 +68,151 @@ npx dshield-sign verify \
   --manifest signed-manifest.json \
   --dir ./dist
 ```
+
+## API Surface Documentation
+
+The key feature of client transparency is documenting **every API endpoint** your client communicates with. This lets users see exactly what data flows where.
+
+### Automatic API Discovery
+
+Scan your source code to automatically discover API calls:
+
+```bash
+npx dshield-sign analyze \
+  --dir ./src \
+  --output api-surface.json \
+  --report
+```
+
+This will:
+1. Scan all JavaScript/TypeScript files
+2. Detect `fetch()`, `axios`, `XMLHttpRequest`, and `WebSocket` calls
+3. Extract URLs and HTTP methods
+4. Generate a template `api-surface.json`
+5. Create a markdown report for review
+
+### API Surface Structure
+
+The API surface documents:
+
+```json
+{
+  "version": "1.0",
+  "generatedAt": "2024-01-01T00:00:00Z",
+  "endpoints": [
+    {
+      "id": "user-auth",
+      "name": "User Authentication",
+      "baseUrl": "https://api.myapp.com",
+      "path": "/v1/auth/login",
+      "methods": ["POST"],
+      "purpose": "Authenticate users with email/password",
+      "dataSent": {
+        "description": "User credentials",
+        "categories": ["credentials"],
+        "containsPii": true
+      },
+      "dataReceived": {
+        "description": "JWT access token and user profile",
+        "categories": ["credentials", "identifiers"]
+      },
+      "required": true,
+      "authentication": "none",
+      "dshieldFunctionId": "auth-proxy"
+    },
+    {
+      "id": "chat-api",
+      "name": "AI Chat",
+      "baseUrl": "https://api.myapp.com",
+      "path": "/v1/chat",
+      "methods": ["POST"],
+      "purpose": "Send messages to AI assistant",
+      "dataSent": {
+        "description": "User messages and conversation context",
+        "categories": ["user-input", "communications"]
+      },
+      "dataReceived": {
+        "description": "AI-generated responses",
+        "categories": ["communications"]
+      },
+      "required": true,
+      "authentication": "bearer",
+      "dshieldFunctionId": "chat"
+    }
+  ],
+  "thirdPartyServices": [
+    {
+      "name": "Google Analytics",
+      "category": "analytics",
+      "domains": ["www.google-analytics.com"],
+      "purpose": "Usage analytics and metrics",
+      "privacyPolicyUrl": "https://policies.google.com/privacy",
+      "optional": true
+    }
+  ],
+  "websockets": [
+    {
+      "id": "realtime",
+      "url": "wss://api.myapp.com/ws",
+      "purpose": "Real-time message updates"
+    }
+  ],
+  "localStorage": [
+    {
+      "key": "auth_token",
+      "purpose": "Store authentication token",
+      "categories": ["credentials"],
+      "storageType": "localStorage"
+    }
+  ],
+  "cookies": [
+    {
+      "name": "session_id",
+      "purpose": "Session tracking",
+      "type": "essential",
+      "party": "first",
+      "expiration": "session"
+    }
+  ]
+}
+```
+
+### Data Categories
+
+The `categories` field uses standardized data types:
+
+| Category | Description |
+|----------|-------------|
+| `user-input` | Direct user input (messages, forms) |
+| `credentials` | Auth tokens, passwords, API keys |
+| `analytics` | Usage metrics, telemetry |
+| `device-info` | Device/browser metadata |
+| `location` | Geographic data |
+| `media` | Images, audio, video |
+| `files` | User files/documents |
+| `preferences` | User settings |
+| `identifiers` | User IDs, session IDs |
+| `financial` | Payment info |
+| `health` | Health/medical data |
+| `communications` | Messages, emails |
+| `behavioral` | Click patterns, interactions |
+| `third-party` | Data from other services |
+| `system` | App state, errors, logs |
+
+### Including API Surface in Manifest
+
+After reviewing and editing the generated API surface:
+
+```bash
+npx dshield-sign generate \
+  --dir ./dist \
+  --name "My App v1.0.0" \
+  --type web \
+  --egress api.myapp.com,www.google-analytics.com \
+  --api-surface api-surface.json
+```
+
+The `allowedEgress` domains should match the domains in your API surface.
 
 ## CI/CD Integration
 

@@ -25,6 +25,16 @@ export type {
   ManifestGeneratorConfig,
   RegisterManifestRequest,
   RegisterManifestResponse,
+  // API Surface types
+  ApiSurface,
+  ApiEndpoint,
+  HttpMethod,
+  DataFlowDescription,
+  DataCategory,
+  ThirdPartyIntegration,
+  WebSocketEndpoint,
+  LocalStorageUsage,
+  CookieUsage,
 } from './types.js';
 
 // Manifest generation
@@ -65,3 +75,12 @@ export {
   type ClientVerifierConfig,
   type SelfVerificationResult,
 } from './client-sdk.js';
+
+// API Surface Analyzer
+export {
+  analyzeApiSurface,
+  formatAnalysisReport,
+  generateApiSurfaceTemplate,
+  type DiscoveredApiCall,
+  type AnalysisResult,
+} from './api-analyzer.js';

@@ -15,6 +15,7 @@ import type {
   ClientFileEntry,
   BuildMetadata,
   ManifestGeneratorConfig,
+  ApiSurface,
 } from './types.js';
 
 /**
@@ -255,6 +256,18 @@ export function generateManifest(config: ManifestGeneratorConfig): ClientManifes
   // Optional fields
   if (config.source) {
     manifest.source = config.source;
+  }
+
+  // Load API surface from file or use inline config
+  if (config.apiSurfaceFile && existsSync(config.apiSurfaceFile)) {
+    try {
+      const apiSurfaceJson = readFileSync(config.apiSurfaceFile, 'utf-8');
+      manifest.apiSurface = JSON.parse(apiSurfaceJson) as ApiSurface;
+    } catch (error) {
+      throw new Error(`Failed to load API surface file: ${config.apiSurfaceFile}`);
+    }
+  } else if (config.apiSurface) {
+    manifest.apiSurface = config.apiSurface;
   }
 
   if (config.dshieldFunctions && config.dshieldFunctions.length > 0) {

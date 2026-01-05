@@ -6,6 +6,7 @@
  *
  * Usage:
  *   dshield-sign generate --dir ./dist --name "My App" --type web --egress api.example.com
+ *   dshield-sign analyze --dir ./src --output api-surface.json
  *   dshield-sign sign --manifest manifest.json --key private.pem
  *   dshield-sign verify --manifest signed-manifest.json
  *   dshield-sign publish --manifest signed-manifest.json --server https://dshield.example.com
@@ -22,6 +23,11 @@ import {
   generateSigningKeyPair,
   verifyManifestAgainstDirectory,
 } from './index.js';
+import {
+  analyzeApiSurface,
+  formatAnalysisReport,
+  generateApiSurfaceTemplate,
+} from './api-analyzer.js';
 import type { ClientManifest, SignedClientManifest, ManifestGeneratorConfig } from './types.js';
 
 interface CliArgs {
@@ -66,6 +72,7 @@ Usage: dshield-sign <command> [options]
 
 Commands:
   generate    Generate a manifest from a build directory
+  analyze     Analyze source code to discover API endpoints
   sign        Sign a manifest with a private key
   verify      Verify a signed manifest
   publish     Publish a signed manifest to a D-Shield server
@@ -73,11 +80,12 @@ Commands:
   help        Show this help message
 
 Generate Options:
-  --dir <path>        Build directory to scan (required)
-  --name <name>       Client name (required)
-  --type <type>       Client type: web, mobile-ios, mobile-android, desktop, cli (required)
-  --egress <domains>  Comma-separated list of allowed egress domains (required)
-  --output <path>     Output file path (default: manifest.json)
+  --dir <path>          Build directory to scan (required)
+  --name <name>         Client name (required)
+  --type <type>         Client type: web, mobile-ios, mobile-android, desktop, cli (required)
+  --egress <domains>    Comma-separated list of allowed egress domains (required)
+  --output <path>       Output file path (default: manifest.json)
+  --api-surface <path>  Path to API surface JSON file (from analyze command)
   --include <glob>    Glob patterns to include (comma-separated)
   --exclude <glob>    Glob patterns to exclude (comma-separated)
   --functions <ids>   D-Shield function IDs this client uses (comma-separated)
@@ -103,13 +111,26 @@ Keygen Options:
   --output <dir>      Output directory for keys (default: ./)
   --prefix <name>     Key file prefix (default: dshield)
 
+Analyze Options:
+  --dir <path>        Source directory to scan (required)
+  --output <path>     Output file path (default: api-surface.json)
+  --report            Also generate a markdown report
+  --format <type>     Output format: json, report, both (default: json)
+
 Examples:
-  # Generate manifest for a web app build
+  # First, analyze your source code to discover API endpoints
+  dshield-sign analyze \\
+    --dir ./src \\
+    --output api-surface.json \\
+    --report
+
+  # Generate manifest with the discovered API surface
   dshield-sign generate \\
     --dir ./dist \\
     --name "My Web App v1.0.0" \\
     --type web \\
-    --egress api.myapp.com,cdn.myapp.com
+    --egress api.myapp.com,cdn.myapp.com \\
+    --api-surface api-surface.json
 
   # Sign the manifest
   dshield-sign sign \\
@@ -173,6 +194,10 @@ function generateCommand(options: Record<string, string | boolean>): void {
       repositoryUrl: (options.repo as string) || '',
       commitHash: (options.commit as string) || '',
     };
+  }
+
+  if (options['api-surface']) {
+    config.apiSurfaceFile = options['api-surface'] as string;
   }
 
   console.log(`Generating manifest for ${dir}...`);
@@ -362,6 +387,71 @@ async function publishCommand(options: Record<string, string | boolean>): Promis
   }
 }
 
+function analyzeCommand(options: Record<string, string | boolean>): void {
+  const dir = options.dir as string;
+  const output = (options.output as string) || 'api-surface.json';
+  const format = (options.format as string) || 'json';
+  const generateReport = options.report === true || format === 'report' || format === 'both';
+
+  if (!dir) {
+    console.error('Error: --dir is required');
+    process.exit(1);
+  }
+
+  console.log(`Analyzing API surface in ${dir}...`);
+
+  try {
+    const result = analyzeApiSurface(dir);
+
+    console.log(`\nAnalysis complete!`);
+    console.log(`  Files analyzed: ${result.filesAnalyzed}`);
+    console.log(`  API calls found: ${result.apiCalls.length}`);
+    console.log(`  Unique domains: ${result.domains.length}`);
+    if (result.websockets.length > 0) {
+      console.log(`  WebSocket connections: ${result.websockets.length}`);
+    }
+
+    // Output domains
+    if (result.domains.length > 0) {
+      console.log(`\nDomains detected:`);
+      for (const domain of result.domains.sort()) {
+        console.log(`  - ${domain}`);
+      }
+    }
+
+    // Generate API surface JSON
+    if (format !== 'report') {
+      const apiSurface = generateApiSurfaceTemplate(result);
+      const jsonOutput = JSON.stringify(apiSurface, null, 2);
+      writeFileSync(output, jsonOutput);
+      console.log(`\nAPI surface written to: ${output}`);
+    }
+
+    // Generate markdown report
+    if (generateReport) {
+      const report = formatAnalysisReport(result);
+      const reportPath = output.replace('.json', '.md');
+      writeFileSync(reportPath, report);
+      console.log(`Analysis report written to: ${reportPath}`);
+    }
+
+    // Warnings
+    if (result.warnings.length > 0) {
+      console.log(`\nWarnings:`);
+      for (const warning of result.warnings) {
+        console.log(`  ⚠️  ${warning}`);
+      }
+    }
+
+    console.log(`\n💡 Tip: Review and edit ${output} to add descriptions, then use:`);
+    console.log(`   dshield-sign generate --api-surface ${output} ...`);
+
+  } catch (error) {
+    console.error(`Error: ${error instanceof Error ? error.message : error}`);
+    process.exit(1);
+  }
+}
+
 function keygenCommand(options: Record<string, string | boolean>): void {
   const outputDir = (options.output as string) || '.';
   const prefix = (options.prefix as string) || 'dshield';
@@ -398,6 +488,9 @@ async function main(): Promise<void> {
   switch (args.command) {
     case 'generate':
       generateCommand(args.options);
+      break;
+    case 'analyze':
+      analyzeCommand(args.options);
       break;
     case 'sign':
       signCommand(args.options);
