@@ -16,7 +16,10 @@ import type {
   BuildMetadata,
   ManifestGeneratorConfig,
   ApiSurface,
+  SDKVerification,
 } from './types.js';
+
+import { SDK_ID, SDK_VERSION } from './transparent-sdk.js';
 
 /**
  * MIME type mapping for common file extensions.
@@ -278,7 +281,52 @@ export function generateManifest(config: ManifestGeneratorConfig): ClientManifes
     manifest.customMetadata = config.customMetadata;
   }
 
+  // Auto-detect D-Shield SDK in the bundle
+  const sdkVerification = detectDShieldSDK(files, config.buildDir);
+  if (sdkVerification) {
+    manifest.sdkVerification = sdkVerification;
+  }
+
   return manifest;
+}
+
+/**
+ * Detect D-Shield SDK in the build and return verification info.
+ * Looks for files containing the SDK marker and computes hash.
+ */
+export function detectDShieldSDK(
+  files: ClientFileEntry[],
+  buildDir: string
+): SDKVerification | undefined {
+  // Look for files that might contain the D-Shield SDK
+  // The SDK exports SDK_ID which we can search for
+  const sdkMarker = 'dshield-client-sdk';
+
+  for (const file of files) {
+    // Only check JavaScript files
+    if (!file.path.endsWith('.js') && !file.path.endsWith('.mjs')) {
+      continue;
+    }
+
+    try {
+      const content = readFileSync(join(buildDir, file.path), 'utf-8');
+
+      // Check if this file contains the D-Shield SDK marker
+      if (content.includes(sdkMarker) && content.includes('initDShield')) {
+        return {
+          sdkId: SDK_ID,
+          sdkVersion: SDK_VERSION,
+          sdkHash: file.hash,
+          sdkPath: file.path,
+        };
+      }
+    } catch {
+      // Skip files that can't be read
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 /**

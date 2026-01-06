@@ -218,6 +218,21 @@ export interface CookieUsage {
 }
 
 /**
+ * D-Shield SDK verification info.
+ * Used to verify the client is using the official D-Shield SDK.
+ */
+export interface SDKVerification {
+  /** SDK identifier */
+  sdkId: string;
+  /** SDK version */
+  sdkVersion: string;
+  /** SHA-256 hash of the SDK file in the bundle */
+  sdkHash: string;
+  /** Path to SDK file in the bundle */
+  sdkPath: string;
+}
+
+/**
  * Client manifest containing all information needed to verify a client build.
  * This is the primary artifact that gets signed and published.
  */
@@ -240,7 +255,13 @@ export interface ClientManifest {
   source?: SourceReference;
   /** Egress domains this client is allowed to contact */
   allowedEgress: string[];
-  /** Complete API surface documentation - all APIs the client talks to */
+  /**
+   * SDK verification - proves client uses D-Shield SDK for all network calls.
+   * When present, TEE verifies SDK hash matches, ensuring all client
+   * requests are routed through D-Shield and logged.
+   */
+  sdkVerification?: SDKVerification;
+  /** Complete API surface documentation (optional - for additional transparency) */
   apiSurface?: ApiSurface;
   /** Associated D-Shield function IDs this client interacts with */
   dshieldFunctions?: string[];

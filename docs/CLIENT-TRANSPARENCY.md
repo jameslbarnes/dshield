@@ -9,14 +9,78 @@ Even with server-side attestation, users can't verify:
 - Whether the client sends data to unauthorized endpoints
 - Whether the client code matches what was audited
 
-## The Solution
+## The Solution: Transparent Fetch SDK
 
-Client transparency provides:
+The simplest and most effective approach is the **Transparent Fetch SDK**. This SDK routes ALL client network requests through D-Shield, ensuring complete visibility into client-side data flows.
+
+### How It Works
+
+1. **Include the SDK** - Bundle the D-Shield client SDK in your app
+2. **TEE Verification** - The TEE verifies the SDK hash in your manifest
+3. **All Requests Logged** - Every fetch() call is proxied through D-Shield and logged with cryptographic signatures
+4. **Complete Transparency** - Users can see exactly what data the client sends
+
+### Quick Start with Transparent SDK
+
+```typescript
+import { initDShield } from '@dshield/client';
+
+// Initialize once at app startup
+initDShield({
+  serverUrl: 'https://your-dshield-server.com',
+  clientId: 'my-app-v1.0.0',
+  debug: true,
+});
+
+// Now ALL fetch() calls are automatically proxied through D-Shield
+const response = await fetch('https://api.example.com/data');
+// This request is logged with signatures in the TEE
+```
+
+### SDK Features
+
+- **Automatic Fetch Wrapping** - Global `fetch()` is replaced with a proxied version
+- **Request Logging** - All requests are logged with cryptographic signatures
+- **SDK Hash Verification** - TEE verifies the SDK hash matches the signed manifest
+- **Exclude Paths** - Optionally exclude local assets from proxying
+- **Non-Invasive** - Use `createDShieldFetch()` if you prefer not to modify global fetch
+
+### Alternative: API Surface Documentation
+
+For additional transparency, you can also document your API surface (endpoints, data categories, third-party services). This is optional but recommended for complete disclosure.
+
+## Build Verification
+
+In addition to the transparent SDK, D-Shield provides:
 1. **Reproducible Build Manifests** - Hash every file in your build output
-2. **API Surface Documentation** - Document every API endpoint your client communicates with
-3. **Cryptographic Signing** - Sign manifests with RSA keys
-4. **Published Registry** - Users can discover and verify manifests
-5. **Self-Verification SDK** - Clients can verify their own integrity
+2. **Cryptographic Signing** - Sign manifests with RSA keys
+3. **Published Registry** - Users can discover and verify manifests
+4. **Self-Verification** - Clients can verify their own integrity
+
+## SDK Verification in Manifest
+
+When your build includes the D-Shield SDK, it's automatically detected and added to the manifest:
+
+```json
+{
+  "manifest": {
+    "...": "...",
+    "sdkVerification": {
+      "sdkId": "dshield-client-sdk",
+      "sdkVersion": "1.0.0",
+      "sdkHash": "sha256-of-sdk-file",
+      "sdkPath": "dist/dshield-sdk.js"
+    }
+  }
+}
+```
+
+The TEE verifies:
+1. The SDK file exists at the specified path
+2. The SDK hash matches the signed manifest
+3. The SDK version is compatible
+
+This ensures all client requests go through D-Shield's logging proxy.
 
 ## Quick Start
 

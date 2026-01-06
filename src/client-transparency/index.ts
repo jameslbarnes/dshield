@@ -25,7 +25,9 @@ export type {
   ManifestGeneratorConfig,
   RegisterManifestRequest,
   RegisterManifestResponse,
-  // API Surface types
+  // SDK verification (recommended)
+  SDKVerification,
+  // API Surface types (optional - for documentation)
   ApiSurface,
   ApiEndpoint,
   HttpMethod,
@@ -44,6 +46,7 @@ export {
   captureBuildMetadata,
   computeBundleHash,
   verifyManifestAgainstDirectory,
+  detectDShieldSDK,
   sha256,
   hashFile,
 } from './manifest.js';
@@ -76,7 +79,7 @@ export {
   type SelfVerificationResult,
 } from './client-sdk.js';
 
-// API Surface Analyzer
+// API Surface Analyzer (optional - for documentation purposes)
 export {
   analyzeApiSurface,
   formatAnalysisReport,
@@ -84,3 +87,14 @@ export {
   type DiscoveredApiCall,
   type AnalysisResult,
 } from './api-analyzer.js';
+
+// Transparent Client SDK (recommended approach)
+export {
+  initDShield,
+  createDShieldFetch,
+  getSDKInfo,
+  isInitialized,
+  SDK_VERSION,
+  SDK_ID,
+  type DShieldConfig,
+} from './transparent-sdk.js';
