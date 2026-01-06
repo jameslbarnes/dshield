@@ -13,6 +13,7 @@ describe('InMemoryLogStore', () => {
   describe('append', () => {
     it('appends entries successfully', async () => {
       const entry: SignedLogEntry = {
+        type: 'egress',
         sequence: 1,
         functionId: 'fn-123',
         invocationId: 'inv-456',
@@ -34,6 +35,7 @@ describe('InMemoryLogStore', () => {
 
     it('maintains separate logs per function', async () => {
       const entry1: SignedLogEntry = {
+        type: 'egress',
         sequence: 1,
         functionId: 'fn-1',
         invocationId: 'inv-1',
@@ -47,6 +49,7 @@ describe('InMemoryLogStore', () => {
       };
 
       const entry2: SignedLogEntry = {
+        type: 'egress',
         sequence: 1,
         functionId: 'fn-2',
         invocationId: 'inv-2',
@@ -80,6 +83,7 @@ describe('InMemoryLogStore', () => {
 
     it('returns correct sequence after appends', async () => {
       const createEntry = (seq: number): SignedLogEntry => ({
+        type: 'egress',
         sequence: seq,
         functionId: 'fn-123',
         invocationId: 'inv-456',
@@ -111,6 +115,7 @@ describe('InMemoryLogStore', () => {
 
     it('returns all entries in order', async () => {
       const createEntry = (seq: number): SignedLogEntry => ({
+        type: 'egress',
         sequence: seq,
         functionId: 'fn-123',
         invocationId: 'inv-456',
@@ -139,6 +144,7 @@ describe('InMemoryLogStore', () => {
   describe('clear', () => {
     it('removes all entries', async () => {
       const entry: SignedLogEntry = {
+        type: 'egress',
         sequence: 1,
         functionId: 'fn-123',
         invocationId: 'inv-456',
@@ -176,6 +182,7 @@ describe('verifyLogIntegrity', () => {
     host: string = 'example.com'
   ): SignedLogEntry => {
     const entry = {
+      type: 'egress' as const,
       sequence: seq,
       functionId: 'fn-123',
       invocationId: 'inv-456',

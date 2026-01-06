@@ -11,7 +11,7 @@
 
 import http from 'node:http';
 import { URL } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -29,7 +29,7 @@ import type {
   FunctionResult,
   LogStorageConfig,
 } from './types.js';
-import type { LogStore, Signer } from '../proxy/types.js';
+import type { LogStore, Signer, RequestLogEntry, ResponseLogEntry, SignedLogEntry } from '../proxy/types.js';
 
 export class DShieldRuntime {
   private config: RuntimeConfig;
@@ -41,6 +41,8 @@ export class DShieldRuntime {
   private started = false;
   private proxyUrl = '';
   private tempDir: string;
+  private sequenceLock: Promise<void> = Promise.resolve();
+  private readonly SERVER_FUNCTION_ID = 'dshield-server';
 
   constructor(config: RuntimeConfig) {
     this.config = config;
@@ -184,6 +186,19 @@ export class DShieldRuntime {
   }
 
   /**
+   * Get source IP from request.
+   */
+  private getSourceIp(req: http.IncomingMessage): string {
+    // Check for forwarded headers (reverse proxy)
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      const ips = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
+      return ips.trim();
+    }
+    return req.socket.remoteAddress || 'unknown';
+  }
+
+  /**
    * Handle incoming HTTP requests.
    */
   private async handleRequest(
@@ -191,6 +206,43 @@ export class DShieldRuntime {
     res: http.ServerResponse
   ): Promise<void> {
     const startTime = Date.now();
+    const invocationId = randomUUID();
+    const sourceIp = this.getSourceIp(req);
+    const clientId = req.headers['x-dshield-client-id'] as string | undefined;
+
+    // Parse request body for logging
+    const bodyChunks: Buffer[] = [];
+    req.on('data', (chunk) => bodyChunks.push(chunk));
+    await new Promise<void>((resolve) => req.on('end', resolve));
+    const rawBody = Buffer.concat(bodyChunks).toString();
+
+    // Create a helper to send response with logging
+    const sendResponse = async (status: number, body: string, headers: Record<string, string> = {}) => {
+      const durationMs = Date.now() - startTime;
+
+      // Log response before sending
+      await this.logResponse({
+        invocationId,
+        requestSeq,
+        status,
+        body,
+        durationMs,
+      });
+
+      res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
+      res.end(body);
+    };
+
+    // Log incoming request
+    const url = new URL(req.url || '/', `http://localhost:${this.config.port}`);
+    const requestSeq = await this.logRequest({
+      invocationId,
+      method: req.method || 'GET',
+      path: url.pathname + url.search,
+      sourceIp,
+      clientId,
+      body: rawBody,
+    });
 
     try {
       // Check for management API routes first
@@ -205,21 +257,18 @@ export class DShieldRuntime {
         return;
       }
 
-      // Parse URL
-      const url = new URL(req.url || '/', `http://localhost:${this.config.port}`);
       const pathParts = url.pathname.split('/').filter(Boolean);
 
       // Route: /invoke/:functionId
       if (pathParts[0] === 'invoke' && pathParts[1]) {
         const functionId = pathParts[1];
-        await this.handleInvoke(functionId, req, res, url);
+        await this.handleInvokeWithLogging(functionId, req, res, url, invocationId, requestSeq, rawBody, startTime);
         return;
       }
 
       // Route: /health
       if (pathParts[0] === 'health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'healthy', uptime: process.uptime() }));
+        await sendResponse(200, JSON.stringify({ status: 'healthy', uptime: process.uptime() }));
         return;
       }
 
@@ -241,15 +290,23 @@ export class DShieldRuntime {
           name: f.name,
           runtime: f.runtime,
         }));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ functions: [...staticFns, ...dynamicFns] }));
+        await sendResponse(200, JSON.stringify({ functions: [...staticFns, ...dynamicFns] }));
         return;
       }
 
       // Route: /publicKey
       if (pathParts[0] === 'publicKey') {
+        const durationMs = Date.now() - startTime;
+        const body = this.signer.getPublicKey();
+        await this.logResponse({
+          invocationId,
+          requestSeq,
+          status: 200,
+          body,
+          durationMs,
+        });
         res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end(this.signer.getPublicKey());
+        res.end(body);
         return;
       }
 
@@ -260,21 +317,18 @@ export class DShieldRuntime {
       }
 
       // 404 for unknown routes
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found' }));
+      await sendResponse(404, JSON.stringify({ error: 'Not found' }));
     } catch (error) {
       console.error('Request error:', error);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          error: error instanceof Error ? error.message : 'Internal server error',
-        })
-      );
+      const errorBody = JSON.stringify({
+        error: error instanceof Error ? error.message : 'Internal server error',
+      });
+      await sendResponse(500, errorBody);
     }
   }
 
   /**
-   * Handle function invocation.
+   * Handle function invocation (legacy - kept for compatibility).
    */
   private async handleInvoke(
     functionId: string,
@@ -336,6 +390,101 @@ export class DShieldRuntime {
       res.writeHead(500, responseHeaders);
       res.end(JSON.stringify({ error: result.error }));
     }
+  }
+
+  /**
+   * Handle function invocation with request/response logging.
+   */
+  private async handleInvokeWithLogging(
+    functionId: string,
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    url: URL,
+    invocationId: string,
+    requestSeq: number,
+    rawBody: string,
+    startTime: number
+  ): Promise<void> {
+    // Try static sandbox first
+    let sandbox: FunctionSandbox | undefined = this.sandboxes.get(functionId);
+
+    // If not found, try to load from dynamic function store
+    if (!sandbox) {
+      const dynamicSandbox = await this.loadDynamicFunction(functionId);
+      if (dynamicSandbox) {
+        sandbox = dynamicSandbox;
+      }
+    }
+
+    if (!sandbox) {
+      const errorBody = JSON.stringify({ error: `Function '${functionId}' not found` });
+      await this.logResponse({
+        invocationId,
+        requestSeq,
+        status: 404,
+        body: errorBody,
+        durationMs: Date.now() - startTime,
+      });
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(errorBody);
+      return;
+    }
+
+    // Set invocation ID for egress log correlation
+    this.proxyServer.setInvocationId(invocationId);
+
+    // Parse request body
+    let body: unknown;
+    try {
+      body = rawBody ? JSON.parse(rawBody) : undefined;
+    } catch {
+      body = rawBody;
+    }
+
+    // Build function request
+    const functionRequest: FunctionRequest = {
+      id: randomUUID(),
+      functionId,
+      method: req.method || 'GET',
+      path: url.pathname,
+      headers: this.flattenHeaders(req.headers),
+      body,
+      query: Object.fromEntries(url.searchParams),
+    };
+
+    // Execute function
+    const result = await sandbox.execute(functionRequest);
+
+    // Build response
+    const responseHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-DShield-Invocation-Id': invocationId,
+      'X-DShield-Duration-Ms': String(result.durationMs),
+    };
+
+    let status: number;
+    let responseBody: string;
+
+    if (result.success && result.response) {
+      status = result.response.statusCode;
+      responseBody = JSON.stringify(result.response.body);
+      Object.assign(responseHeaders, result.response.headers);
+    } else {
+      status = 500;
+      responseBody = JSON.stringify({ error: result.error });
+    }
+
+    // Log response
+    await this.logResponse({
+      invocationId,
+      requestSeq,
+      status,
+      body: responseBody,
+      durationMs: Date.now() - startTime,
+    });
+
+    res.writeHead(status, responseHeaders);
+    res.end(responseBody);
   }
 
   /**
@@ -408,6 +557,108 @@ export class DShieldRuntime {
    */
   async getLogs(functionId: string) {
     return this.logStore.getAll(functionId);
+  }
+
+  /**
+   * Compute SHA-256 hash of data.
+   */
+  private sha256(data: string | Buffer): string {
+    return createHash('sha256').update(data).digest('hex');
+  }
+
+  /**
+   * Log an incoming request.
+   */
+  private async logRequest(params: {
+    invocationId: string;
+    method: string;
+    path: string;
+    sourceIp: string;
+    clientId?: string;
+    body?: string;
+  }): Promise<number> {
+    let requestSeq = 0;
+
+    this.sequenceLock = this.sequenceLock.then(async () => {
+      const sequence = (await this.logStore.getLatestSequence(this.SERVER_FUNCTION_ID)) + 1;
+      requestSeq = sequence;
+
+      const requestBody = params.body || '';
+      const entry: RequestLogEntry = {
+        type: 'request',
+        sequence,
+        functionId: this.SERVER_FUNCTION_ID,
+        invocationId: params.invocationId,
+        timestamp: new Date().toISOString(),
+        method: params.method,
+        path: params.path,
+        sourceIp: params.sourceIp,
+        clientId: params.clientId,
+        requestSize: Buffer.byteLength(requestBody),
+        requestHash: this.sha256(requestBody),
+      };
+
+      const dataToSign = JSON.stringify(entry);
+      const signature = this.signer.sign(dataToSign);
+
+      const signedEntry: SignedLogEntry = {
+        ...entry,
+        signature,
+      };
+
+      await this.logStore.append(signedEntry);
+
+      console.log(
+        `[REQ] seq=${sequence} ${params.method} ${params.path} from=${params.sourceIp}${params.clientId ? ` client=${params.clientId}` : ''}`
+      );
+    });
+
+    await this.sequenceLock;
+    return requestSeq;
+  }
+
+  /**
+   * Log an outgoing response.
+   */
+  private async logResponse(params: {
+    invocationId: string;
+    requestSeq: number;
+    status: number;
+    body: string;
+    durationMs: number;
+  }): Promise<void> {
+    this.sequenceLock = this.sequenceLock.then(async () => {
+      const sequence = (await this.logStore.getLatestSequence(this.SERVER_FUNCTION_ID)) + 1;
+
+      const entry: ResponseLogEntry = {
+        type: 'response',
+        sequence,
+        functionId: this.SERVER_FUNCTION_ID,
+        invocationId: params.invocationId,
+        timestamp: new Date().toISOString(),
+        requestSeq: params.requestSeq,
+        status: params.status,
+        responseSize: Buffer.byteLength(params.body),
+        responseHash: this.sha256(params.body),
+        durationMs: params.durationMs,
+      };
+
+      const dataToSign = JSON.stringify(entry);
+      const signature = this.signer.sign(dataToSign);
+
+      const signedEntry: SignedLogEntry = {
+        ...entry,
+        signature,
+      };
+
+      await this.logStore.append(signedEntry);
+
+      console.log(
+        `[RES] seq=${sequence} status=${params.status} size=${entry.responseSize} duration=${params.durationMs}ms`
+      );
+    });
+
+    await this.sequenceLock;
   }
 
   /**

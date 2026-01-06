@@ -186,7 +186,7 @@ describe.skip('HTTP Request Interception', () => {
     // Verify request was logged by proxy
     const entries = await logStore.getAll('test-shim-function');
     expect(entries.length).toBeGreaterThan(0);
-    expect(entries.some((e) => e.path.includes('/shimmed-request'))).toBe(true);
+    expect(entries.some((e) => e.path?.includes('/shimmed-request'))).toBe(true);
   });
 
   it('does not route through proxy when disabled', async () => {
@@ -219,7 +219,7 @@ describe.skip('HTTP Request Interception', () => {
 
     // Request should NOT have been logged (went direct)
     const entries = await logStore.getAll('test-shim-function');
-    expect(entries.some((e) => e.path.includes('/direct-request'))).toBe(false);
+    expect(entries.some((e) => e.path?.includes('/direct-request'))).toBe(false);
   });
 
   it('logs multiple requests with correct sequence', async () => {
@@ -272,7 +272,7 @@ describe.skip('HTTP Request Interception', () => {
     });
 
     const entries = await logStore.getAll('test-shim-function');
-    const postEntry = entries.find((e) => e.path.includes('/post-test'));
+    const postEntry = entries.find((e) => e.path?.includes('/post-test'));
 
     expect(postEntry).toBeDefined();
     expect(postEntry!.method).toBe('POST');

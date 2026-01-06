@@ -156,6 +156,7 @@ export class LoggingProxyServer {
         (await this.config.logStore.getLatestSequence(this.config.functionId)) + 1;
 
       const entry: EgressLogEntry = {
+        type: 'egress',
         sequence,
         functionId: this.config.functionId,
         invocationId: this.currentInvocationId,
