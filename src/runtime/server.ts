@@ -20,6 +20,7 @@ import { TEESigner } from '../proxy/signer.js';
 import { InMemoryLogStore } from '../proxy/log-store.js';
 import { FunctionSandbox, createSandbox } from './function-sandbox.js';
 import { managementApi, managementStore } from '../management/index.js';
+import { clientTransparencyApi } from '../client-transparency/index.js';
 import type { StoredFunction } from '../management/types.js';
 import type {
   RuntimeConfig,
@@ -198,6 +199,12 @@ export class DShieldRuntime {
         return;
       }
 
+      // Check for client transparency API routes
+      const transparencyHandled = await clientTransparencyApi.handle(req, res);
+      if (transparencyHandled) {
+        return;
+      }
+
       // Parse URL
       const url = new URL(req.url || '/', `http://localhost:${this.config.port}`);
       const pathParts = url.pathname.split('/').filter(Boolean);
@@ -243,6 +250,12 @@ export class DShieldRuntime {
       if (pathParts[0] === 'publicKey') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end(this.signer.getPublicKey());
+        return;
+      }
+
+      // Route: /proxy - Client SDK proxy endpoint
+      if (pathParts[0] === 'proxy') {
+        await this.handleClientProxy(req, res);
         return;
       }
 
@@ -395,6 +408,103 @@ export class DShieldRuntime {
    */
   async getLogs(functionId: string) {
     return this.logStore.getAll(functionId);
+  }
+
+  /**
+   * Handle client SDK proxy requests.
+   * Routes client requests through D-Shield for logging.
+   */
+  private async handleClientProxy(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    // Extract target URL from header
+    const targetUrl = req.headers['x-dshield-target-url'] as string;
+    const clientId = req.headers['x-dshield-client-id'] as string | undefined;
+    const sdkVersion = req.headers['x-dshield-sdk-version'] as string | undefined;
+
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing X-DShield-Target-URL header' }));
+      return;
+    }
+
+    // Create invocation ID for log correlation
+    const invocationId = this.proxyServer.newInvocation();
+
+    // Parse the target URL
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid target URL' }));
+      return;
+    }
+
+    // Read request body
+    const body = await this.parseRequestBody(req);
+    const bodyStr = body ? JSON.stringify(body) : undefined;
+
+    // Forward request through the logging proxy
+    // The proxy will log this request with signatures
+    try {
+      const proxyHost = '127.0.0.1';
+      const proxyPort = this.proxyServer.getPort();
+
+      // Make request through proxy
+      const proxyReq = http.request({
+        host: proxyHost,
+        port: proxyPort,
+        method: req.method,
+        path: targetUrl,
+        headers: {
+          ...this.flattenHeaders(req.headers),
+          host: parsedUrl.host,
+          // Remove D-Shield headers before forwarding
+          'x-dshield-target-url': undefined,
+          'x-dshield-client-id': undefined,
+          'x-dshield-sdk-version': undefined,
+        },
+      });
+
+      // Handle proxy response
+      proxyReq.on('response', (proxyRes) => {
+        // Forward response headers
+        const responseHeaders: Record<string, string> = {
+          'X-DShield-Invocation-Id': invocationId,
+          'X-DShield-Proxied': 'true',
+        };
+
+        if (proxyRes.headers['content-type']) {
+          responseHeaders['Content-Type'] = proxyRes.headers['content-type'] as string;
+        }
+
+        res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+
+        // Pipe response body
+        proxyRes.pipe(res);
+      });
+
+      proxyReq.on('error', (err) => {
+        console.error('[Proxy] Request error:', err.message);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+      });
+
+      // Forward request body
+      if (bodyStr) {
+        proxyReq.write(bodyStr);
+      }
+      proxyReq.end();
+
+    } catch (error) {
+      console.error('[Proxy] Error:', error);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: error instanceof Error ? error.message : 'Proxy error',
+      }));
+    }
   }
 
   /**
