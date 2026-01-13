@@ -90,7 +90,7 @@ GET /report/my-app.json
 
 ## Example: ETHEREA
 
-[ETHEREA](https://etherea.app) is a creative AI tool that uses Auditor to prove its data practices:
+ETHEREA is a creative AI tool that uses Auditor to prove its data practices:
 
 **Server-side (TEE-attested):**
 - AI responses → `api.anthropic.com`, `openrouter.ai`
