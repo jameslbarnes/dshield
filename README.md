@@ -88,6 +88,21 @@ GET /report/my-app.json
 - **For AI agents:** When delegating tasks to another agent, programmatically verify its data practices
 - **Machine-readable:** JSON format enables automated trust decisions
 
+## Example: ETHEREA
+
+[ETHEREA](https://etherea.app) is a creative AI tool that uses Auditor to prove its data practices:
+
+**Server-side (TEE-attested):**
+- AI responses → `api.anthropic.com`, `openrouter.ai`
+- Transcription → `api.deepgram.com`
+- Storage → `firestore.googleapis.com`
+
+**Client-side (self-reported):**
+- App server → `etherea.app`
+- Libraries → `cdn.jsdelivr.net`
+
+Users see exactly where their voice data and AI conversations go—no hidden analytics, no data brokers.
+
 ## Current Status
 
 | Component | Status |
