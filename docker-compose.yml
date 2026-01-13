@@ -1,11 +1,11 @@
-# D-Shield Docker Compose for Phala d-stack deployment
-# This file is used by Phala Cloud to deploy the D-Shield runtime
+# Auditor Docker Compose for Phala d-stack deployment
+# This file is used by Phala Cloud to deploy the Auditor runtime
 
 version: "3.8"
 
 services:
-  dshield:
-    image: ghcr.io/jameslbarnes/dshield:latest
+  auditor:
+    image: generalsemantics/auditor:v16
     ports:
       - "3000:3000"
     environment:
@@ -13,11 +13,14 @@ services:
       - DSHIELD_PORT=3000
       - NODE_ENV=production
 
-      # Root API key for management API (set via .env file)
-      - DSHIELD_ROOT_KEY=${DSHIELD_ROOT_KEY}
+      # Root API key for management API
+      - DSHIELD_ROOT_KEY=auditor_root_key_for_testing_12345
 
       # Function configuration (can be overridden)
       - DSHIELD_FUNCTIONS_PATH=/app/functions
+
+      # Phala Remote Attestation URL (set by Phala Cloud)
+      # - PHALA_RA_REPORT_URL=https://...
 
       # Firestore configuration (for production log storage)
       # - FIRESTORE_PROJECT_ID=your-project-id
@@ -26,6 +29,10 @@ services:
       # API keys for functions (encrypted by d-stack)
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
+    # Persistent encrypted storage
+    volumes:
+      - auditor-data:/data
+
     # Healthcheck using wget (curl may not be installed)
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
@@ -33,3 +40,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+# Named volumes for persistent storage (encrypted by dstack in TEE)
+volumes:
+  auditor-data:
