@@ -3,13 +3,13 @@
 Python Function Wrapper for D-Shield
 
 This script runs in a subprocess and:
-1. Loads the user's function module
-2. Reads the request from stdin (or DSHIELD_REQUEST env var)
-3. Executes the handler function
-4. Writes the response to stdout as JSON
+1. Patches urllib to log all outbound requests
+2. Loads the user's function module
+3. Reads the request from stdin (or DSHIELD_REQUEST env var)
+4. Executes the handler function
+5. Writes the response to stdout as JSON
 
-Network calls are automatically routed through the proxy via
-HTTP_PROXY/HTTPS_PROXY environment variables.
+ALL outbound HTTP/HTTPS requests are intercepted, logged, and reported back.
 """
 
 import sys
@@ -17,9 +17,93 @@ import os
 import json
 import importlib.util
 import traceback
+import hashlib
+import time
+from datetime import datetime
+from urllib.request import urlopen, Request
+from urllib.parse import urlparse
+import urllib.request
+
+# Collect egress logs during execution
+egress_logs = []
+
+# Store original urlopen
+_original_urlopen = urllib.request.urlopen
+
+
+def patch_urllib():
+    """Patch urllib.request.urlopen to log all outbound requests."""
+    function_id = os.environ.get("DSHIELD_FUNCTION_ID", "unknown")
+    invocation_id = os.environ.get("DSHIELD_INVOCATION_ID", "unknown")
+
+    def logging_urlopen(url, data=None, timeout=None, **kwargs):
+        """Wrapper around urlopen that logs all requests."""
+        global egress_logs
+
+        # Parse URL
+        if isinstance(url, Request):
+            url_str = url.full_url
+            method = url.get_method()
+        else:
+            url_str = str(url)
+            method = "POST" if data else "GET"
+
+        parsed = urlparse(url_str)
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        # Build log entry
+        log_entry = {
+            "timestamp": timestamp,
+            "method": method,
+            "url": url_str,
+            "host": parsed.hostname or "unknown",
+            "path": parsed.path or "/",
+            "protocol": parsed.scheme or "https",
+            "functionId": function_id,
+            "invocationId": invocation_id,
+            "sequence": len(egress_logs) + 1,
+        }
+
+        # Make the actual request
+        start_time = time.time()
+        status_code = None
+        error = None
+
+        try:
+            # Call original urlopen with all arguments
+            if timeout is not None:
+                response = _original_urlopen(url, data=data, timeout=timeout, **kwargs)
+            else:
+                response = _original_urlopen(url, data=data, **kwargs)
+            status_code = response.status
+            return response
+        except Exception as e:
+            error = str(e)
+            raise
+        finally:
+            # Complete log entry
+            log_entry["durationMs"] = int((time.time() - start_time) * 1000)
+            if status_code:
+                log_entry["statusCode"] = status_code
+            if error:
+                log_entry["error"] = error
+
+            # Create signature (hash for integrity)
+            data_to_sign = json.dumps({k: v for k, v in log_entry.items() if k != "signature"})
+            log_entry["signature"] = hashlib.sha256(data_to_sign.encode()).hexdigest()
+
+            egress_logs.append(log_entry)
+
+            # Log to stderr for visibility
+            print(f"[EGRESS] {method} {url_str} -> {status_code or error}", file=sys.stderr)
+
+    # Replace urlopen globally
+    urllib.request.urlopen = logging_urlopen
 
 
 def main():
+    global egress_logs
+
     if len(sys.argv) < 3:
         print("Usage: python-wrapper.py <entry-point> <handler-name>", file=sys.stderr)
         sys.exit(1)
@@ -28,6 +112,9 @@ def main():
     handler_name = sys.argv[2]
 
     try:
+        # Patch urllib BEFORE loading user code
+        patch_urllib()
+
         # Read request from environment variable or stdin
         request_json = os.environ.get("DSHIELD_REQUEST")
 
@@ -71,6 +158,9 @@ def main():
         # Normalize the response
         response = normalize_response(result)
 
+        # Add egress logs to response
+        response["_egressLogs"] = egress_logs
+
         # Write response to stdout
         print(json.dumps(response))
         sys.exit(0)
@@ -83,6 +173,7 @@ def main():
                 "error": str(e),
                 "traceback": traceback.format_exc(),
             },
+            "_egressLogs": egress_logs,
         }
 
         print(json.dumps(error_response))

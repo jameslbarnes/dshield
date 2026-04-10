@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * D-Shield Runtime CLI
+ * Auditor Runtime CLI
  *
- * Entry point for starting the D-Shield runtime.
+ * Entry point for starting the Auditor runtime.
  * Reads configuration from environment variables and config files.
  */
 
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 async function main() {
-  console.log('D-Shield Runtime v0.1.0');
+  console.log('Auditor Runtime v0.1.0');
   console.log('========================');
 
   // Load configuration
@@ -33,7 +33,7 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  console.log('\nD-Shield runtime started successfully');
+  console.log('\nAuditor runtime started successfully');
   console.log(`Public key for verification:\n${runtime.getPublicKey().slice(0, 100)}...`);
 }
 

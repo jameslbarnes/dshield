@@ -1,0 +1,30 @@
+{
+  "name": "@anthropic/auditor-client",
+  "version": "0.1.0",
+  "description": "Auditor client SDK for transparent egress logging",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "browser": "dist/auditor.min.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm,iife --dts --global-name Auditor --minify",
+    "dev": "tsup src/index.ts --format esm --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "auditor",
+    "egress",
+    "logging",
+    "transparency",
+    "security"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

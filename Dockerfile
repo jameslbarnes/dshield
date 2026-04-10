@@ -1,4 +1,4 @@
-# D-Shield Runtime Docker Image
+# Auditor Runtime Docker Image
 # For deployment on Phala Network d-stack (TDX)
 
 FROM node:20-slim AS builder
@@ -58,11 +58,20 @@ COPY --from=builder /app/scripts ./scripts
 # Copy wrapper scripts
 COPY src/runtime/wrappers ./dist/src/runtime/wrappers
 
+# Copy frontend build
+COPY web/dist ./dist/web
+
+# Copy client SDK
+COPY packages/client-sdk/dist ./packages/client-sdk/dist
+
 # Make scripts executable
 RUN chmod +x scripts/*.sh
 
 # Create non-root user for function execution
 RUN useradd -m -s /bin/bash dshield
+
+# Create data directory for encrypted persistent storage
+RUN mkdir -p /data && chown root:root /data && chmod 755 /data
 
 # Environment variables
 ENV NODE_ENV=production

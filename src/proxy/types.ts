@@ -8,6 +8,14 @@ export interface EgressLogEntry {
   port: number;
   path: string;
   protocol: 'http' | 'https';
+  source?: 'tee' | 'client'; // 'tee' for TEE-attested, 'client' for self-reported
+  initiator?: string; // For client logs: 'fetch', 'xhr', 'websocket', etc.
+  // Database write detection
+  dbWrite?: {
+    provider: string; // 'firestore', 'supabase', 'planetscale', 'turso', 'unknown'
+    fields: string[]; // Field names being written
+    collection?: string; // Table/collection name if detected
+  };
 }
 
 export interface SignedLogEntry extends EgressLogEntry {

@@ -1,14 +1,15 @@
 {
-  "name": "dshield",
+  "name": "auditor",
   "version": "0.1.0",
-  "description": "Serverless functions with cryptographic proof of every external API call",
+  "description": "Cryptographic proof of where your data goes",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/runtime/cli.js",
+    "postbuild": "node -e \"const fs=require('fs');const p=require('path');const d='dist/src/runtime/wrappers';fs.mkdirSync(d,{recursive:true});fs.readdirSync('src/runtime/wrappers').forEach(f=>fs.copyFileSync(p.join('src/runtime/wrappers',f),p.join(d,f)))\"",
+    "start": "node dist/src/runtime/cli.js",
     "dev": "tsx src/runtime/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,12 +18,14 @@
     "lint": "eslint src tests"
   },
   "bin": {
-    "dshield": "./dist/runtime/cli.js"
+    "auditor": "./dist/runtime/cli.js"
   },
   "dependencies": {
+    "@phala/dstack-sdk": "^0.5.7",
     "express": "^4.18.2",
     "http-proxy": "^1.18.1",
     "node-forge": "^1.3.1",
+    "undici": "^7.18.0",
     "uuid": "^9.0.0",
     "winston": "^3.11.0"
   },

@@ -5,6 +5,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { managementStore } from './store.js';
 import type {
+  ApiKey,
   ApiKeyPermission,
   CreateFunctionRequest,
   UpdateFunctionRequest,
@@ -15,7 +16,8 @@ import type {
 type RouteHandler = (
   req: IncomingMessage,
   res: ServerResponse,
-  params: Record<string, string>
+  params: Record<string, string>,
+  apiKey: ApiKey
 ) => Promise<void>;
 
 interface Route {
@@ -190,7 +192,7 @@ export class ManagementApi {
       const params = match.groups || {};
 
       try {
-        await route.handler(req, res, params);
+        await route.handler(req, res, params, apiKey);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Internal error';
         sendError(res, 500, message);
@@ -208,12 +210,14 @@ export class ManagementApi {
 
   private async createApiKey(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const body = await parseBody<CreateApiKeyRequest>(req);
 
-    if (!body.name || !body.permissions?.length) {
-      sendError(res, 400, 'name and permissions are required');
+    if (!body.name || !body.appName || !body.permissions?.length) {
+      sendError(res, 400, 'name, appName, and permissions are required');
       return;
     }
 
@@ -223,7 +227,9 @@ export class ManagementApi {
 
   private async listApiKeys(
     _req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const keys = managementStore.listApiKeys();
     sendJson(res, 200, { keys });
@@ -232,7 +238,8 @@ export class ManagementApi {
   private async deleteApiKey(
     _req: IncomingMessage,
     res: ServerResponse,
-    params: Record<string, string>
+    params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const { id } = params;
     const deleted = managementStore.deleteApiKey(id);
@@ -249,7 +256,9 @@ export class ManagementApi {
 
   private async createFunction(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    apiKey: ApiKey
   ): Promise<void> {
     const body = await parseBody<CreateFunctionRequest>(req);
 
@@ -264,13 +273,16 @@ export class ManagementApi {
       return;
     }
 
-    const fn = managementStore.createFunction(body);
+    // Pass API key for attribution
+    const fn = managementStore.createFunction(body, apiKey);
     sendJson(res, 201, fn);
   }
 
   private async listFunctions(
     _req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const functions = managementStore.listFunctions().map((fn) => ({
       ...fn,
@@ -282,7 +294,8 @@ export class ManagementApi {
   private async getFunction(
     _req: IncomingMessage,
     res: ServerResponse,
-    params: Record<string, string>
+    params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const { id } = params;
     const fn = managementStore.getFunction(id);
@@ -298,7 +311,8 @@ export class ManagementApi {
   private async updateFunction(
     req: IncomingMessage,
     res: ServerResponse,
-    params: Record<string, string>
+    params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const { id } = params;
     const body = await parseBody<UpdateFunctionRequest>(req);
@@ -316,7 +330,8 @@ export class ManagementApi {
   private async deleteFunction(
     _req: IncomingMessage,
     res: ServerResponse,
-    params: Record<string, string>
+    params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const { id } = params;
     const deleted = managementStore.deleteFunction(id);
@@ -333,7 +348,9 @@ export class ManagementApi {
 
   private async setSecret(
     req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const body = await parseBody<CreateSecretRequest>(req);
 
@@ -358,7 +375,9 @@ export class ManagementApi {
 
   private async listSecrets(
     _req: IncomingMessage,
-    res: ServerResponse
+    res: ServerResponse,
+    _params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const secrets = managementStore.listSecrets();
     sendJson(res, 200, { secrets });
@@ -367,7 +386,8 @@ export class ManagementApi {
   private async deleteSecret(
     _req: IncomingMessage,
     res: ServerResponse,
-    params: Record<string, string>
+    params: Record<string, string>,
+    _apiKey: ApiKey
   ): Promise<void> {
     const { name } = params;
     const deleted = managementStore.deleteSecret(name);

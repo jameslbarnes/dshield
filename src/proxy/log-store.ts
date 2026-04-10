@@ -1,4 +1,23 @@
 import type { LogStore, SignedLogEntry } from './types.js';
+import { managementStore } from '../management/store.js';
+
+/**
+ * Persistent log store backed by encrypted storage.
+ * Logs survive CVM restarts.
+ */
+export class PersistentLogStore implements LogStore {
+  async append(entry: SignedLogEntry): Promise<void> {
+    managementStore.appendLog(entry);
+  }
+
+  async getAll(functionId: string): Promise<SignedLogEntry[]> {
+    return managementStore.getLogs(functionId);
+  }
+
+  async getLatestSequence(functionId: string): Promise<number> {
+    return managementStore.getLatestLogSequence(functionId);
+  }
+}
 
 /**
  * In-memory log store for testing and development.
