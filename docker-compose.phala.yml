@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  auditor:
+    image: generalsemantics/auditor:v18
+    ports:
+      - "3000:3000"
+    environment:
+      - DSHIELD_PORT=3000
+      - NODE_ENV=production
+      - DSHIELD_FUNCTIONS_PATH=/app/functions
+      # Names only — values injected via encrypted --env-file at deploy time
+      - DSHIELD_ROOT_KEY
+      - NEAR_AI_API_KEY
+      - AUDITOR_ENCRYPTION_KEY
+    volumes:
+      - auditor-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  auditor-data:

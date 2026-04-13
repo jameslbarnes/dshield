@@ -54,6 +54,13 @@ export class ManagementStore {
    * Falls back to environment-based key for local development
    */
   private async deriveEncryptionKey(): Promise<Buffer> {
+    // Prefer explicit encryption key from environment — guaranteed stable across restarts
+    const envKey = process.env.AUDITOR_ENCRYPTION_KEY;
+    if (envKey) {
+      console.log('[Store] Using encryption key from environment');
+      return Buffer.from(createHash('sha256').update(envKey).digest());
+    }
+
     // Check if we're in a TEE environment
     const inTee = existsSync('/var/run/dstack.sock');
 
@@ -70,13 +77,6 @@ export class ManagementStore {
       } catch (err) {
         console.warn('[Store] Failed to derive key from TEE, falling back:', err);
       }
-    }
-
-    // Fallback for local development - use env-based key or generate one
-    const envKey = process.env.AUDITOR_ENCRYPTION_KEY;
-    if (envKey) {
-      console.log('[Store] Using encryption key from environment');
-      return Buffer.from(createHash('sha256').update(envKey).digest());
     }
 
     // Last resort - random key (won't persist across restarts!)

@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Shield, CheckCircle2, ExternalLink, ArrowRight, Lock, FileCode, Settings, Globe, Database, Sparkles, Clock } from 'lucide-react'
+import { Shield, CheckCircle2, ArrowRight, Lock, FileCode, Settings } from 'lucide-react'
 import './Landing.css'
 
 const API_BASE = ''
-
-type SourceFilter = 'all' | 'tee' | 'client'
 
 interface LogEntry {
   timestamp: string
@@ -20,6 +18,7 @@ interface LogEntry {
   signature: string
   source?: 'tee' | 'client'
   initiator?: string
+  destinationAttestation?: string
   dbWrite?: {
     provider: string
     fields: string[]
@@ -32,30 +31,94 @@ interface LogsResponse {
   publicKey: string
 }
 
+function SignupForm() {
+  const [name, setName] = useState('')
+  const [appName, setAppName] = useState('')
+  const [apiKey, setApiKey] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/api/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, appName }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Signup failed')
+      }
+      const data = await res.json()
+      setApiKey(data.key)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (apiKey) {
+    return (
+      <div className="signup-result">
+        <p className="signup-success">Your API key (save this, shown only once):</p>
+        <pre className="code-block"><code>{apiKey}</code></pre>
+        <div className="signup-next">
+          <p>Deploy a function:</p>
+          <pre className="code-block"><code>{`curl -X POST ${window.location.origin}/api/functions \\
+  -H "Authorization: Bearer ${apiKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"id": "my-func", "runtime": "node", "code": "..."}'`}</code></pre>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <form className="signup-form" onSubmit={handleSubmit}>
+      <input
+        type="text"
+        placeholder="Your name"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        required
+      />
+      <input
+        type="text"
+        placeholder="App or project name"
+        value={appName}
+        onChange={e => setAppName(e.target.value)}
+        required
+      />
+      <button type="submit" disabled={submitting}>
+        {submitting ? 'Creating...' : 'Get API Key'}
+        {!submitting && <ArrowRight size={14} />}
+      </button>
+      {error && <p className="signup-error">{error}</p>}
+    </form>
+  )
+}
+
 export function Landing() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
-  // Client app IDs that have submitted logs - in a real app this would be fetched from the server
-  const [clientAppIds] = useState<string[]>([])
-
   const fetchLogs = async () => {
     try {
-      // Get all functions first
       const fnRes = await fetch(`${API_BASE}/functions`)
       if (!fnRes.ok) throw new Error('Failed to fetch functions')
       const fnData = await fnRes.json()
 
-      // Fetch logs for each function and combine
       const allLogs: LogEntry[] = []
       for (const fn of fnData.functions || []) {
         try {
           const logRes = await fetch(`${API_BASE}/logs/${fn.id}`)
           if (logRes.ok) {
             const logData: LogsResponse = await logRes.json()
-            // Mark function logs as TEE-attested if not already marked
             allLogs.push(...logData.entries.map(e => ({
               ...e,
               source: e.source || 'tee' as const
@@ -66,20 +129,6 @@ export function Landing() {
         }
       }
 
-      // Also fetch client logs if we have known app IDs
-      for (const appId of clientAppIds) {
-        try {
-          const logRes = await fetch(`${API_BASE}/logs/client:${appId}`)
-          if (logRes.ok) {
-            const logData: LogsResponse = await logRes.json()
-            allLogs.push(...logData.entries)
-          }
-        } catch {
-          // Skip failed log fetches
-        }
-      }
-
-      // Sort by timestamp descending
       allLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       setLogs(allLogs)
       setLastUpdate(new Date())
@@ -90,12 +139,6 @@ export function Landing() {
       setLoading(false)
     }
   }
-
-  // Filter logs based on source
-  const filteredLogs = logs.filter(log => {
-    if (sourceFilter === 'all') return true
-    return log.source === sourceFilter
-  })
 
   useEffect(() => {
     fetchLogs()
@@ -130,40 +173,43 @@ export function Landing() {
 
       <main className="main">
         <section className="hero">
-          <p className="hero-eyebrow">For developers who respect user privacy</p>
-          <h1>Prove you're doing<br/>the right thing.</h1>
+          <p className="hero-eyebrow">Verifiable privacy for AI agents</p>
+          <h1>Prove your<br/>agent forgot.</h1>
           <p className="subtitle">
-            "We don't sell your data" means nothing without proof. Add verifiable egress logs to your app in minutes.
+            Auditor runs your functions inside a trusted execution environment and signs every outbound request, so you can keep your code private while proving exactly where user data goes.
           </p>
         </section>
 
-        <section className="problem">
-          <div className="problem-text">
-            <h2>The trust problem</h2>
-            <p>
-              You know your app only talks to the APIs it needs. Your users don't.
-              Privacy policies are just words. Auditor turns them into <strong>cryptographic proof</strong>.
-            </p>
-          </div>
-          <div className="problem-points">
-            <div className="problem-point">
-              <span className="problem-icon">?</span>
-              <span>Users can't verify privacy claims</span>
-            </div>
-            <div className="problem-point">
-              <span className="problem-icon">?</span>
-              <span>AI agents need trust signals</span>
-            </div>
-            <div className="problem-point">
-              <span className="problem-icon">?</span>
-              <span>"Trust us" doesn't scale</span>
-            </div>
-          </div>
+        <section className="solution">
+          <h2>Get started with three API calls</h2>
+          <SignupForm />
         </section>
 
-        <section className="solution">
-          <h2>Two ways to prove it</h2>
-          <p className="solution-subtitle">Choose based on your architecture. Use both for full coverage.</p>
+        <section className="code-steps">
+          <div className="code-step">
+            <span className="step-number">1</span>
+            <div className="step-content">
+              <h3>Deploy</h3>
+              <p>Push your function code. It runs inside the TEE.</p>
+              <pre className="code-block"><code><span className="c-method">POST</span> /api/functions{'\n'}<span className="c-key">id:</span> <span className="c-str">"moderate"</span>  <span className="c-key">runtime:</span> <span className="c-str">"node"</span>{'\n'}<span className="c-key">code:</span> <span className="c-str">"export async function handler(req) {'{ ... }'}"</span></code></pre>
+            </div>
+          </div>
+          <div className="code-step">
+            <span className="step-number">2</span>
+            <div className="step-content">
+              <h3>Invoke</h3>
+              <p>Call your function. Auditor logs every outbound request it makes.</p>
+              <pre className="code-block"><code><span className="c-method">POST</span> /invoke/moderate{'\n'}<span className="c-key">body:</span> {'{ '}<span className="c-str">"text"</span>: <span className="c-str">"user content"</span>{' }'}{'\n'}{'\n'}<span className="c-comment">{'\u2192'} {'{ '}"verdict": "PASS"{' }'}</span></code></pre>
+            </div>
+          </div>
+          <div className="code-step">
+            <span className="step-number">3</span>
+            <div className="step-content">
+              <h3>Verify</h3>
+              <p>Point humans and their agents to exactly where their data went.</p>
+              <pre className="code-block"><code><span className="c-method">GET</span> /logs/moderate{'\n'}{'\n'}<span className="c-comment">sequence 1</span>  <span className="c-key">host:</span> <span className="c-str">api.openai.com</span>      <span className="c-sig">{'\u2713'} signed</span>{'\n'}<span className="c-comment">sequence 2</span>  <span className="c-key">host:</span> <span className="c-str">cloud-api.near.ai</span>  <span className="c-sig">{'\u2713'} signed</span>{'\n'}            <span className="c-key">destinationAttestation:</span> <a href="https://cloud-api.near.ai/v1/attestation/report" target="_blank" rel="noopener" className="c-link">near.ai/attestation</a>{'\n'}{'\n'}<span className="c-comment">Two calls. Near is also in a TEE — full chain of trust.</span></code></pre>
+            </div>
+          </div>
         </section>
 
         <section className="pillars">
@@ -171,40 +217,32 @@ export function Landing() {
             <div className="pillar-icon">
               <Lock size={24} />
             </div>
-            <h2>Serverless Functions</h2>
+            <h2>Hardware-backed</h2>
             <span className="pillar-badge tee">TEE-Attested</span>
             <p className="pillar-desc">
-              Deploy your backend to a Trusted Execution Environment. Every outbound request gets cryptographically signed. <strong>Not even you can fake the logs.</strong>
+              Your function runs inside a trusted execution environment. Every outbound request gets cryptographically signed. <strong>The hardware guarantees the logs are real.</strong>
             </p>
             <ul className="pillar-features">
               <li><CheckCircle2 size={14} /> Hardware-enforced isolation</li>
-              <li><CheckCircle2 size={14} /> Tamper-proof signatures</li>
-              <li><CheckCircle2 size={14} /> Verifiable attestation</li>
+              <li><CheckCircle2 size={14} /> Tamper-proof egress logs</li>
+              <li><CheckCircle2 size={14} /> Verifiable attestation chain</li>
             </ul>
-            <a href="https://docs.phala.com/dstack" target="_blank" rel="noopener" className="pillar-link">
-              Deploy Now
-              <ArrowRight size={14} />
-            </a>
           </div>
 
           <div className="pillar client-pillar">
             <div className="pillar-icon">
-              <Globe size={24} />
+              <CheckCircle2 size={24} />
             </div>
-            <h2>Client SDK</h2>
-            <span className="pillar-badge client">Self-Reported</span>
+            <h2>Publicly verifiable</h2>
+            <span className="pillar-badge client">Open Logs</span>
             <p className="pillar-desc">
-              One script tag. Every fetch, XHR, and WebSocket logged. Users can open dev tools and verify—<strong>your transparency becomes their trust.</strong>
+              Egress logs are public and signed. Anyone can verify your agent only talked to the APIs it claims. <strong>Trust through math.</strong>
             </p>
             <ul className="pillar-features">
-              <li><CheckCircle2 size={14} /> 3 lines to integrate</li>
-              <li><CheckCircle2 size={14} /> User-verifiable in browser</li>
-              <li><CheckCircle2 size={14} /> Works with any framework</li>
+              <li><CheckCircle2 size={14} /> RSA-signed log entries</li>
+              <li><CheckCircle2 size={14} /> Sequence-numbered (gap = tampering)</li>
+              <li><CheckCircle2 size={14} /> Public key from TEE attestation</li>
             </ul>
-            <a href="https://github.com/jameslbarnes/auditor" target="_blank" rel="noopener" className="pillar-link">
-              Get the SDK
-              <ArrowRight size={14} />
-            </a>
           </div>
         </section>
 
@@ -215,36 +253,32 @@ export function Landing() {
           </Link>
         </div>
 
-        <section className="roadmap">
-          <h2>Roadmap</h2>
-          <p className="roadmap-subtitle">What's coming next</p>
-
-          <div className="roadmap-items">
-            <div className="roadmap-item now">
-              <div className="roadmap-status">
-                <CheckCircle2 size={16} />
-                <span>Now</span>
-              </div>
-              <h3>Field-Level Logging</h3>
-              <p>See exactly which database fields your app writes. Automatic detection for Firestore, Supabase, and more.</p>
+        <section className="use-cases">
+          <h2>What you can build</h2>
+          <div className="use-case-grid">
+            <div className="use-case">
+              <h3>Content moderation</h3>
+              <p>Private rules that resist gaming, with proof the content was evaluated and forgotten. <a href="https://hermes.teleport.computer" target="_blank" rel="noopener">Live on Teleport Router.</a></p>
             </div>
-
-            <div className="roadmap-item next">
-              <div className="roadmap-status">
-                <Sparkles size={16} />
-                <span>Next</span>
-              </div>
-              <h3>Storage Attestation</h3>
-              <p>Prove data is encrypted before database writes. TEE-managed encryption keys, entropy verification, field-level proofs.</p>
+            <div className="use-case">
+              <h3>Medical triage</h3>
+              <p>Patients describe symptoms and get guidance, with proof their data only reached the LLM.</p>
             </div>
-
-            <div className="roadmap-item future">
-              <div className="roadmap-status">
-                <Clock size={16} />
-                <span>Future</span>
-              </div>
-              <h3>Self-Sovereign Storage</h3>
-              <p>User data on user-controlled infrastructure. Code that won't run without verifiable data ownership.</p>
+            <div className="use-case">
+              <h3>Financial advice</h3>
+              <p>Users share sensitive financials for personalized recommendations the agent provably forgets.</p>
+            </div>
+            <div className="use-case">
+              <h3>Hiring screens</h3>
+              <p>AI evaluates candidates with proprietary criteria and proves it only returned a score.</p>
+            </div>
+            <div className="use-case">
+              <h3>Open-source routing</h3>
+              <p>Public applications delegate sensitive operations to private attested functions with proven boundaries.</p>
+            </div>
+            <div className="use-case">
+              <h3>Credential delegation</h3>
+              <p>Agents borrow your API keys for a task and prove they only called authorized endpoints.</p>
             </div>
           </div>
         </section>
@@ -254,28 +288,6 @@ export function Landing() {
             <div className="feed-title">
               <div className={`live-indicator ${loading ? 'loading' : ''}`} />
               <span>Live Egress Log</span>
-            </div>
-            <div className="feed-filters">
-              <button
-                className={`filter-btn ${sourceFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setSourceFilter('all')}
-              >
-                All
-              </button>
-              <button
-                className={`filter-btn ${sourceFilter === 'tee' ? 'active' : ''}`}
-                onClick={() => setSourceFilter('tee')}
-              >
-                <Lock size={12} />
-                TEE
-              </button>
-              <button
-                className={`filter-btn ${sourceFilter === 'client' ? 'active' : ''}`}
-                onClick={() => setSourceFilter('client')}
-              >
-                <Globe size={12} />
-                Client
-              </button>
             </div>
             {lastUpdate && (
               <span className="last-update">
@@ -287,68 +299,38 @@ export function Landing() {
           <div className="feed-container">
             {error ? (
               <div className="feed-error">
-                <p>Unable to connect to D-Shield runtime</p>
+                <p>Unable to connect to Auditor runtime</p>
                 <code>{error}</code>
               </div>
-            ) : filteredLogs.length === 0 ? (
+            ) : logs.length === 0 ? (
               <div className="feed-empty">
-                <p>No API calls logged yet.</p>
-                <p className="feed-empty-hint">Deploy a function and make some requests to see them appear here.</p>
+                <p>Waiting for function invocations.</p>
               </div>
             ) : (
               <div className="feed-logs">
                 <div className="feed-logs-header">
-                  <span className="col-source">Source</span>
-                  <span className="col-app">App</span>
                   <span className="col-fn">Function</span>
                   <span className="col-method">Method</span>
                   <span className="col-url">Destination</span>
-                  <span className="col-fields">Fields</span>
                   <span className="col-sig">Verified</span>
                 </div>
-                {filteredLogs.slice(-50).reverse().map((log, i) => (
-                  <div key={`${log.sequence}-${i}`} className={`log-entry ${log.source === 'client' ? 'client-log' : 'tee-log'}`}>
-                    <span className="col-source">
-                      {log.source === 'client' ? (
-                        <span className="source-badge client" title="Self-reported by client SDK">
-                          <Globe size={12} />
-                          Client
-                        </span>
-                      ) : (
-                        <span className="source-badge tee" title="TEE-attested and signed">
+                {logs.slice(0, 50).map((log, i) => (
+                  <div key={`${log.sequence}-${i}`} className="log-entry tee-log">
+                    <span className="col-fn mono">{log.functionId}</span>
+                    <span className={`col-method method-${log.method.toLowerCase()}`}>{log.method}</span>
+                    <span className="col-url mono">
+                      {formatDestination(log)}
+                      {log.destinationAttestation && (
+                        <a href={log.destinationAttestation} target="_blank" rel="noopener" className="dest-attested" title="Destination is also TEE-attested">
                           <Lock size={12} />
                           TEE
-                        </span>
-                      )}
-                    </span>
-                    <span className="col-app mono">{log.appName || 'unknown'}</span>
-                    <span className="col-fn mono">
-                      {log.functionId.startsWith('client:') ? log.initiator || 'client' : log.functionId}
-                    </span>
-                    <span className={`col-method method-${log.method.toLowerCase()}`}>{log.method}</span>
-                    <span className="col-url mono">{formatDestination(log)}</span>
-                    <span className="col-fields">
-                      {log.dbWrite ? (
-                        <span className="fields-badge" title={`Writing to ${log.dbWrite.collection || 'database'}: ${log.dbWrite.fields.join(', ')}`}>
-                          <Database size={12} />
-                          {log.dbWrite.fields.length > 0 ? (
-                            <span className="fields-list">{log.dbWrite.fields.slice(0, 3).join(', ')}{log.dbWrite.fields.length > 3 ? '...' : ''}</span>
-                          ) : (
-                            <span className="fields-list">{log.dbWrite.provider}</span>
-                          )}
-                        </span>
-                      ) : (
-                        <span className="fields-none">—</span>
+                        </a>
                       )}
                     </span>
                     <span className="col-sig">
-                      {log.source === 'client' ? (
-                        <span className="sig-self" title="Self-reported (verifiable via dev tools)">—</span>
-                      ) : (
-                        <span title="Cryptographically signed">
-                          <CheckCircle2 size={14} className="sig-icon" />
-                        </span>
-                      )}
+                      <span title="Cryptographically signed">
+                        <CheckCircle2 size={14} className="sig-icon" />
+                      </span>
                     </span>
                   </div>
                 ))}
@@ -357,16 +339,6 @@ export function Landing() {
           </div>
         </section>
 
-        <section className="cta">
-          <a href={`${API_BASE}/health`} target="_blank" rel="noopener" className="cta-button">
-            View Runtime Status
-            <ExternalLink size={16} />
-          </a>
-          <a href="https://github.com/jameslbarnes/auditor" className="cta-link">
-            Deploy your own
-            <ArrowRight size={16} />
-          </a>
-        </section>
       </main>
 
       <footer className="footer">

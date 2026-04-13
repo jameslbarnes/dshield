@@ -249,14 +249,45 @@ export class DShieldRuntime {
         return;
       }
 
+      // Route: POST /api/signup - Public self-service key creation
+      if (req.method === 'POST' && pathParts[0] === 'api' && pathParts[1] === 'signup') {
+        const body = await this.parseRequestBody(req);
+        const { name, appName } = body as { name?: string; appName?: string };
+        if (!name || !appName) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'name and appName are required' }));
+          return;
+        }
+        const result = managementStore.createApiKey({
+          name,
+          appName,
+          permissions: ['functions:read', 'functions:write', 'functions:invoke'],
+        });
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+        return;
+      }
+
       // Check for management API routes
       const handled = await managementApi.handle(req, res);
       if (handled) {
         return;
       }
 
-      // Route: /invoke/:functionId
+      // Route: /invoke/:functionId (requires functions:invoke permission)
       if (pathParts[0] === 'invoke' && pathParts[1]) {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing or invalid Authorization header' }));
+          return;
+        }
+        const apiKey = managementStore.validateApiKey(authHeader.slice(7));
+        if (!apiKey || !managementStore.hasPermission(apiKey, 'functions:invoke')) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid API key or insufficient permissions' }));
+          return;
+        }
         const functionId = pathParts[1];
         await this.handleInvoke(functionId, req, res, url);
         return;
@@ -426,7 +457,13 @@ export class DShieldRuntime {
         }
       }
 
+      // Known TEE-attested destinations — maps host to attestation endpoint
+      const ATTESTED_DESTINATIONS: Record<string, string> = {
+        'cloud-api.near.ai': 'https://cloud-api.near.ai/v1/attestation/report',
+      };
+
       // Build the log entry (without signature for signing)
+      const destinationAttestation = ATTESTED_DESTINATIONS[host];
       const logEntry = {
         sequence,
         functionId,
@@ -439,6 +476,7 @@ export class DShieldRuntime {
         path,
         protocol,
         source: 'tee' as const, // Mark as TEE-attested
+        ...(destinationAttestation && { destinationAttestation }),
       };
 
       // Sign the entry with TEE key
