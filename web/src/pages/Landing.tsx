@@ -174,7 +174,7 @@ export function Landing() {
       <main className="main">
         <section className="hero">
           <p className="hero-eyebrow">Verifiable privacy for AI agents</p>
-          <h1>Prove your<br/>agent forgot.</h1>
+          <h1>Prove who your<br/>agent talks to.</h1>
           <p className="subtitle">
             Auditor runs your functions inside a trusted execution environment and signs every outbound request, so you can keep your code private while proving exactly where user data goes.
           </p>
@@ -309,6 +309,7 @@ export function Landing() {
             ) : (
               <div className="feed-logs">
                 <div className="feed-logs-header">
+                  <span className="col-time">Time</span>
                   <span className="col-fn">Function</span>
                   <span className="col-method">Method</span>
                   <span className="col-url">Destination</span>
@@ -316,16 +317,17 @@ export function Landing() {
                 </div>
                 {logs.slice(0, 50).map((log, i) => (
                   <div key={`${log.sequence}-${i}`} className="log-entry tee-log">
+                    <span className="col-time mono">{new Date(log.timestamp).toLocaleTimeString()}</span>
                     <span className="col-fn mono">{log.functionId}</span>
                     <span className={`col-method method-${log.method.toLowerCase()}`}>{log.method}</span>
-                    <span className="col-url mono">
-                      {formatDestination(log)}
-                      {log.destinationAttestation && (
+                    <span className="col-url">
+                      <span className="mono url-text">{formatDestination(log)}</span>
+                      {log.destinationAttestation ? (
                         <a href={log.destinationAttestation} target="_blank" rel="noopener" className="dest-attested" title="Destination is also TEE-attested">
                           <Lock size={12} />
                           TEE
                         </a>
-                      )}
+                      ) : null}
                     </span>
                     <span className="col-sig">
                       <span title="Cryptographically signed">

@@ -99,7 +99,7 @@ export function Keys() {
     <div>
       <div className="page-header">
         <h1>API Keys</h1>
-        <p>Manage access to your D-Shield deployment</p>
+        <p>Manage access to your Auditor deployment</p>
       </div>
 
       <div className="card">

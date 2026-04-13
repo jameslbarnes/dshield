@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   auditor:
-    image: generalsemantics/auditor:v18
+    image: generalsemantics/auditor:v21
     ports:
       - "3000:3000"
     environment:

@@ -10,7 +10,7 @@ const DEFAULT_NODE_CODE = `// Handler receives the request body as 'event'
 // Return value is sent as JSON response
 module.exports = async function handler(event) {
   return {
-    message: "Hello from D-Shield!",
+    message: "Hello from Auditor!",
     received: event
   };
 };
@@ -20,7 +20,7 @@ const DEFAULT_PYTHON_CODE = `# Handler receives the request body as 'event'
 # Return value is sent as JSON response
 def handler(event):
     return {
-        "message": "Hello from D-Shield!",
+        "message": "Hello from Auditor!",
         "received": event
     }
 `

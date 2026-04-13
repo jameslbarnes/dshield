@@ -1,175 +1,154 @@
 # Auditor
 
-**Verifiable egress for AI agents.**
+**Prove who your agent talks to.**
 
-Auditor lets users (and other AI agents) answer a simple question: *where does this agent send my data?*
+Auditor runs your functions inside a trusted execution environment and signs every outbound request, so you can keep your code private while proving exactly where user data goes.
 
-## The Problem
-
-AI agents are black boxes. They take your data—conversations, documents, credentials—and do things with it. Users have no way to verify claims like:
-- "We only send data to OpenAI"
-- "We don't share your information with third parties"
-- "We can't see your data—it's processed in a TEE"
-
-This is a trust problem at two levels:
-- **User → Agent:** Should I give this agent my data?
-- **Agent → Agent:** Should my agent delegate tasks to another agent?
-
-## The Solution
-
-Auditor provides verifiable egress logging at two layers:
-
-### 1. Server-Side: TEE-Attested Functions
-
-Run your backend code inside a Trusted Execution Environment (TEE) on Phala Network. Every outbound HTTP request is logged and cryptographically signed—without requiring you to open-source your code.
+## How it works
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Phala CVM (TDX TEE)                          │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │  Your Function (proprietary)                                ││
-│  │       │                                                     ││
-│  │       ▼                                                     ││
-│  │  ┌─────────────────────────────────────────────────────┐   ││
-│  │  │  Logging Proxy (open source, TEE-measured)          │   ││
-│  │  │  Logs: method, URL, host, status, timing            │   ││
-│  │  │  Signs each entry with TEE-held keys                │   ││
-│  │  └─────────────────────────────────────────────────────┘   ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│           Phala CVM (Intel TDX)              │
+│                                              │
+│  ┌────────────────────────────────────────┐  │
+│  │  Your Function (proprietary code)      │  │
+│  │       │                                │  │
+│  │       ▼                                │  │
+│  │  ┌──────────────────────────────────┐  │  │
+│  │  │  Logging Proxy (open source)     │  │  │
+│  │  │  Signs each request with TEE key │  │  │
+│  │  └──────────────────────────────────┘  │  │
+│  └────────────────────────────────────────┘  │
+└──────────────────────────────────────────────┘
 ```
 
-**What you get:** Cryptographic proof of every external service your backend contacts—API providers, databases, analytics, etc.
+Every outbound request your function makes is logged, signed, and publicly verifiable. The hardware guarantees the logs are real.
 
-### 2. Client-Side: Browser Egress SDK
+## Get started with three API calls
 
-A JavaScript SDK that intercepts `fetch`, `XMLHttpRequest`, and `WebSocket` connections in the browser, reporting where the client sends data.
+### 1. Get an API key
 
-```javascript
-import { AuditorSDK } from '@auditor/client-sdk';
-
-AuditorSDK.init({ appId: 'my-app' });
-// Now all browser network requests are logged
+```bash
+curl -X POST $AUDITOR_URL/api/signup \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Your Name", "appName": "my-app"}'
 ```
 
-**Current limitation:** Client-side logs are self-reported. However, anyone can verify them using browser DevTools—the SDK doesn't claim to prove anything users can't check themselves.
+### 2. Deploy a function
 
-### 3. The Report Card
-
-The combination of server-side TEE attestation and client-side reporting creates a structured report:
-
+```bash
+curl -X POST $AUDITOR_URL/api/functions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "moderate",
+    "runtime": "node",
+    "code": "export async function handler(req) {
+      const result = await fetch(\"https://api.openai.com/...\")
+      return { statusCode: 200, body: result }
+    }"
+  }'
 ```
-GET /report/my-app.json
 
+### 3. Invoke and verify
+
+```bash
+# Invoke
+curl -X POST $AUDITOR_URL/invoke/moderate \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "user content"}'
+
+# Check the signed egress logs
+curl $AUDITOR_URL/logs/moderate
+```
+
+The logs show every outbound request, signed by the TEE:
+
+```json
 {
-  "app": "my-app",
-  "server": {
-    "attested": true,
-    "tee": "Intel TDX via Phala Network",
-    "egress": [
-      {"host": "api.anthropic.com", "purpose": "LLM inference"},
-      {"host": "firestore.googleapis.com", "purpose": "storage"}
-    ]
-  },
-  "client": {
-    "attested": false,
-    "note": "Self-reported, verifiable via browser DevTools",
-    "egress": [
-      {"host": "my-app.com", "purpose": "API server"},
-      {"host": "cdn.jsdelivr.net", "purpose": "libraries"}
-    ]
-  },
-  "not_observed": ["analytics", "ad networks", "data brokers"]
+  "entries": [
+    {
+      "sequence": 1,
+      "host": "cloud-api.near.ai",
+      "path": "/v1/chat/completions",
+      "method": "POST",
+      "source": "tee",
+      "destinationAttestation": "https://cloud-api.near.ai/v1/attestation/report",
+      "signature": "RSA-2048..."
+    }
+  ]
 }
 ```
 
-**Why this matters:**
-- **For users:** Before trusting an AI agent with sensitive data, check its report card
-- **For AI agents:** When delegating tasks to another agent, programmatically verify its data practices
-- **Machine-readable:** JSON format enables automated trust decisions
+When the destination is itself a TEE (like Near AI), Auditor chains the attestations — the `destinationAttestation` field links to the destination's own TEE report.
 
-## Example: ETHEREA
+## In production
 
-ETHEREA is a creative AI tool that uses Auditor to prove its data practices:
+Auditor powers content moderation for [Teleport Router](https://hermes.teleport.computer), an open-source AI notebook.
 
-**Server-side (TEE-attested):**
-- AI responses → `api.anthropic.com`, `openrouter.ai`
-- Transcription → `api.deepgram.com`
-- Storage → `firestore.googleapis.com`
+- The moderation prompt is private so it resists gaming
+- Egress logs prove the moderator only talks to Near AI's LLM API
+- Near AI also runs in a TEE — full chain of trust
+- The rest of the application stays fully open source
 
-**Client-side (self-reported):**
-- App server → `etherea.app`
-- Libraries → `cdn.jsdelivr.net`
+This pattern — open-source app with private attested plugins — generalizes to any application that needs proprietary logic with verifiable data handling.
 
-Users see exactly where their voice data and AI conversations go—no hidden analytics, no data brokers.
+## What you can build
 
-## Current Status
+- **Content moderation** — Private rules that resist gaming, with proof the content was evaluated and forgotten
+- **Medical triage** — Patients describe symptoms and get guidance, with proof their data only reached the LLM
+- **Financial advice** — Users share sensitive financials for personalized recommendations the agent provably forgets
+- **Hiring screens** — AI evaluates candidates with proprietary criteria and proves it only returned a score
+- **Open-source routing** — Public applications delegate sensitive operations to private attested functions
+- **Credential delegation** — Agents borrow your API keys for a task and prove they only called authorized endpoints
 
-| Component | Status |
-|-----------|--------|
-| TEE serverless runtime | Working (deployed on Phala) |
-| Python/Node.js function support | Working |
-| Encrypted persistent storage | Working |
-| Management API (secrets, functions, logs) | Working |
-| Client SDK | Working (self-reported) |
-| Report card endpoint | Scaffolding |
-| Field-level logging | Planned |
+## API
 
-## Quick Start
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `POST /api/signup` | Public | Get an API key |
+| `POST /api/functions` | Bearer | Deploy a function |
+| `GET /api/functions` | Bearer | List functions |
+| `PUT /api/functions/:id` | Bearer | Update a function |
+| `DELETE /api/functions/:id` | Bearer | Delete a function |
+| `POST /invoke/:id` | Bearer | Invoke a function |
+| `GET /logs/:id` | Public | Get signed egress logs |
+| `GET /publicKey` | Public | Get TEE public key |
+| `GET /health` | Public | Health check |
 
-### Deploy a Function
+## Deploy your own
 
 ```bash
-# 1. Build and push
+# Build
 docker build -t yourname/auditor:latest .
-docker push yourname/auditor:latest
 
-# 2. Deploy to Phala Cloud with ROOT_ENCRYPTION_KEY env var
+# Run locally
+docker run -p 3000:3000 \
+  -e DSHIELD_ROOT_KEY=$(openssl rand -hex 32) \
+  yourname/auditor:latest
 
-# 3. Add secrets
-curl -X POST $AUDITOR_URL/api/secrets \
-  -H "Authorization: Bearer $ROOT_KEY" \
-  -d '{"name": "API_KEY", "value": "sk-..."}'
-
-# 4. Deploy function (base64-encoded code)
-curl -X POST $AUDITOR_URL/api/functions \
-  -H "Authorization: Bearer $ROOT_KEY" \
-  -d '{"id": "my-func", "runtime": "python", "code": "<base64>", "handler": "handler"}'
-
-# 5. Invoke
-curl -X POST $AUDITOR_URL/invoke/my-func -d '{"input": "data"}'
-
-# 6. Check logs
-curl $AUDITOR_URL/api/logs/my-func -H "Authorization: Bearer $ROOT_KEY"
+# Deploy to Phala Cloud for TEE attestation
+# See docs/DEPLOYMENT.md
 ```
 
-### Add Client SDK
+## Verify log signatures
 
-```html
-<script src="https://unpkg.com/@auditor/client-sdk"></script>
-<script>
-  AuditorSDK.init({ appId: 'my-app', reportUrl: 'https://my-auditor.phala.network' });
-</script>
+```python
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64, json, urllib.request
+
+logs = json.loads(urllib.request.urlopen(f"{AUDITOR_URL}/logs/moderate").read())
+public_key = serialization.load_pem_public_key(logs["publicKey"].encode())
+
+for entry in logs["entries"]:
+    sig = base64.b64decode(entry.pop("signature"))
+    data = json.dumps(entry, separators=(',', ':'))
+    public_key.verify(sig, data.encode(), padding.PKCS1v15(), hashes.SHA256())
+    entry["signature"] = base64.b64encode(sig).decode()
+    print(f"#{entry['sequence']} {entry['host']} ✓")
 ```
-
-## Why Not Just Open Source?
-
-You could open-source your code and let people verify it. But:
-
-1. **Proprietary logic:** Many businesses can't or won't open-source their code
-2. **Verification burden:** Users can't realistically audit every codebase they interact with
-3. **Runtime guarantees:** Open source proves what code *could* do, not what it *is* doing
-
-Auditor provides runtime proof of behavior without requiring code disclosure.
-
-## Roadmap
-
-- [ ] Field-level logging (see exactly which fields are written to databases)
-- [ ] Encryption detection (flag which fields appear encrypted)
-- [ ] Report card UI
-- [ ] MCP server (let AI assistants query report cards directly)
-- [ ] Agent-to-agent trust protocol
-- [ ] Client SDK hardening
 
 ## License
 

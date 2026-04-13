@@ -51,7 +51,7 @@ export function Dashboard() {
     <div>
       <div className="page-header">
         <h1>Dashboard</h1>
-        <p>Overview of your D-Shield deployment</p>
+        <p>Overview of your Auditor deployment</p>
       </div>
 
       <div className="stats-grid">
