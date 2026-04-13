@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { api } from './lib/api'
 import { Landing } from './pages/Landing'
+import { Docs } from './pages/Docs'
 import { Login } from './pages/Login'
 import { Report } from './pages/Report'
 import { AdminLayout } from './components/AdminLayout'
@@ -32,6 +33,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/docs" element={<Docs />} />
       <Route path="/report/:appId" element={<Report />} />
       <Route path="/login" element={<Login />} />
       <Route

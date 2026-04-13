@@ -161,9 +161,9 @@ export function Landing() {
           <a href="https://github.com/jameslbarnes/auditor" target="_blank" rel="noopener">
             GitHub
           </a>
-          <a href="https://docs.phala.com/dstack" target="_blank" rel="noopener">
+          <Link to="/docs">
             Docs
-          </a>
+          </Link>
           <Link to="/admin" className="admin-link">
             <Settings size={16} />
             Admin
